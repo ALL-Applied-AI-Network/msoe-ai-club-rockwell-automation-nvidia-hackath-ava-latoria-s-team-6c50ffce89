@@ -1,0 +1,6 @@
+{
+  "condition_id": "nominal",
+  "seed": 0,
+  "policy": "open_loop",
+  "finger": "stock_aa_scallop"
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PerturbationTrial",
+  "type": "object",
+  "required": ["condition_id", "seed", "policy"],
+  "properties": {
+    "condition_id": {
+      "type": "string",
+      "enum": [
+        "nominal",
+        "yaw_error",
+        "pick_xy_shift",
+        "low_friction",
+        "partial_occlusion",
+        "touching_cubes",
+        "distractor",
+        "cube_tilted"
+      ]
+    },
+    "seed": { "type": "integer" },
+    "policy": { "type": "string", "enum": ["open_loop", "closed_loop"] },
+    "finger": {
+      "type": "string",
+      "enum": ["stock_aa_scallop", "cube_flat_pad"]
+    },
+    "yaw_offset_deg": { "type": "number" },
+    "pick_xy_offset_m": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "tip_static_friction": { "type": "number" },
+    "touching_cube_colours": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "occluding_object": { "type": "string", "enum": ["cap", "vial", "none"] },
+    "tilt_deg": { "type": "number" },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": false
+}

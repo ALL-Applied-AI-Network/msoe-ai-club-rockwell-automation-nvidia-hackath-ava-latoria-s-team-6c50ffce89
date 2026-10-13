@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ManipulationEvent",
+  "type": "object",
+  "required": [
+    "timestamp_utc",
+    "cube_colour",
+    "stack_level",
+    "attempt_index",
+    "table_pose_confidence",
+    "action",
+    "reason",
+    "outcome"
+  ],
+  "properties": {
+    "timestamp_utc": { "type": "string" },
+    "cube_colour": { "type": "string" },
+    "stack_level": { "type": "integer" },
+    "attempt_index": { "type": "integer" },
+    "table_pose_confidence": { "type": "number" },
+    "action": {
+      "type": "string",
+      "enum": [
+        "grasp_close",
+        "grasp_check",
+        "place_check",
+        "regrasp",
+        "carry",
+        "place",
+        "safe_stop"
+      ]
+    },
+    "reason": { "type": "string" },
+    "outcome": {
+      "type": "string",
+      "enum": ["success", "retry", "failed", "in_progress"]
+    },
+    "seated": { "type": ["boolean", "null"] },
+    "placed": { "type": ["boolean", "null"] },
+    "check_confidence": { "type": ["number", "null"] },
+    "yaw_error_deg": { "type": ["number", "null"] },
+    "duration_s": { "type": ["number", "null"] },
+    "extra": { "type": "object" }
+  }
+}

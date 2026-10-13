@@ -1,0 +1,7 @@
+{
+  "condition_id": "low_friction",
+  "seed": 0,
+  "policy": "open_loop",
+  "finger": "stock_aa_scallop",
+  "tip_static_friction": 0.8
+}

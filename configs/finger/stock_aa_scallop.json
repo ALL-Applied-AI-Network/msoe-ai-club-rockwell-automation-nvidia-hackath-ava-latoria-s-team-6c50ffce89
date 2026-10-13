@@ -1,0 +1,9 @@
+{
+  "finger_id": "stock_aa_scallop",
+  "description": "Starter AA-battery scallop on SMC MHZL2-16D2 blades",
+  "contact_face": "scallop",
+  "scallop_radius_m": 0.00725,
+  "finger_length_m": 0.076,
+  "finger_width_m": 0.012,
+  "soft_tip_static_friction": 1.5
+}

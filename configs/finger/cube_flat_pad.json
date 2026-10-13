@@ -1,0 +1,10 @@
+{
+  "finger_id": "cube_flat_pad",
+  "description": "Flat or shallow face for 10 mm cube grasps",
+  "contact_face": "flat",
+  "scallop_radius_m": null,
+  "finger_length_m": 0.076,
+  "finger_width_m": 0.012,
+  "soft_tip_static_friction": 1.5,
+  "notes": "Apply via gripper_geometry.py after closed loop works on stock finger"
+}

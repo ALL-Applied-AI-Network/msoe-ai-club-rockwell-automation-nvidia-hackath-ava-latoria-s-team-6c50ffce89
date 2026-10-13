@@ -1,0 +1,32 @@
+# Benchmark matrix — edit trial globs, not grasp logic
+trials_dir: configs/trials
+results_dir: results/runs
+summary_path: results/benchmarks/summary.md
+
+# Full 2×2 on these conditions (same seeds per cell)
+core_conditions:
+  - nominal
+  - yaw_error
+  - pick_xy_shift
+  - low_friction
+
+# Stock finger only, both policies
+extended_conditions:
+  - partial_occlusion
+  - touching_cubes
+  - distractor
+
+# Report failures; do not hide
+expected_failures:
+  - cube_tilted
+
+seeds_per_core_condition: 10
+seeds_per_extended_condition: 5
+
+policies:
+  - open_loop
+  - closed_loop
+
+fingers:
+  - stock_aa_scallop
+  - cube_flat_pad

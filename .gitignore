@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Results & sim outputs
+results/runs/**/*
+!results/runs/.gitkeep
+
+# Data (keep fixtures dir, ignore captures)
+data/fixtures/**/*.png
+data/fixtures/**/*.jpg
+!data/fixtures/**/.gitkeep
+
+# Hardware CAD binaries
+hardware/cad/*
+!hardware/cad/.gitkeep
+
+# Media & weights
+*.mp4
+*.mov
+*.zip
+*.pt
+*.onnx
+*.safetensors
+
+# Stretch training artifacts
+stretch/yolo/runs/
+stretch/yolo/weights/

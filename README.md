@@ -15,6 +15,24 @@ This is your team's repository for the four-week physical AI hackathon run by Ro
 | **Sun Nov 1, 11:59 PM CT** | **Final submission due:** [submit it here](https://dashboard.all-ai-network.org/s/V28NHK) |
 | Thu Nov 5, 5:00–8:00 PM | Finals at MSOE Diercks Hall: live presentations and prizes |
 
+## Team project
+
+**Vision-Guided Closed-Loop Manipulation for Robust Cube Stacking** — wrist-camera grasp/placement checks and bounded regrasp on the Grasping and Sorting dataset.
+
+| Doc | Purpose |
+| --- | --- |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and repo map |
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Where to implement each component |
+| [docs/submission/](docs/submission/) | One-pager, video script, lab schedule |
+
+```bash
+python run_tests.py
+python scripts/run_benchmark.py
+# optional: python -m pip install -e ".[dev]"
+```
+
+Starter sim: `data/fanuc_er4ia_hackathon_starter_v05 (1)/fanuc_er4ia_sim/`
+
 ## First week
 
 - [ ] Everyone on the team has an ALL AI Network account and has joined this team in the [workspace](https://dashboard.all-ai-network.org/j/L36HEH).
