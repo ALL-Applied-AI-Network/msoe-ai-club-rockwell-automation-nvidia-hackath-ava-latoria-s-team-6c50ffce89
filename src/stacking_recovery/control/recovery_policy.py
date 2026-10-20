@@ -22,7 +22,9 @@ from stacking_recovery.vision.place_check import place_check_stub
 
 class RecoveryDecision(str, Enum):
     PROCEED = "proceed"
+    RETRY = "retry"
     REGRASP = "regrasp"
+    REACQUIRE = "reacquire"
     SAFE_STOP = "safe_stop"
 
 
