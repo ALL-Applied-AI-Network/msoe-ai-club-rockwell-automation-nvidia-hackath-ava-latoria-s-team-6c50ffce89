@@ -171,6 +171,23 @@ class CubePoseTests(unittest.TestCase):
                 [0.35, 0.15, self.cam.table_z + C.CUBE_EDGE / 2],
             )
 
+    def test_exact_semantic_reply_without_numeric_confidence_is_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            im = root / "im.png"
+            cv2.imwrite(str(im), np.zeros((1080, 1920, 3), np.uint8))
+            (root / "camera.json").write_text(json.dumps(self.cam.j))
+            answer = {"category": "cube", "colour": "blue"}
+            obj = dict(category="cube", colour="blue", center=[0.5, 0.5])
+            with patch("perceive.ask", return_value=json.dumps(answer)), patch(
+                "cube_pose.refine_pose",
+                return_value=(np.array([0.35, 0.15]), 17.0, 0.95),
+            ):
+                parsed = inspect_cube_poses(None, None, im, {"objects": [obj]}, root)
+            observed = parsed["objects"][0]
+            self.assertEqual(observed["semantic_confidence"], 0.9)
+            self.assertAlmostEqual(observed["pose_world"]["yaw_deg"], 17.0)
+
     def test_cosmos_numeric_pose_is_ignored_but_semantic_rejection_is_honoured(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
