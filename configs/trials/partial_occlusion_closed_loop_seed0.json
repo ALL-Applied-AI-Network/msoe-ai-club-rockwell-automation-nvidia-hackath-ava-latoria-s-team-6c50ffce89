@@ -1,0 +1,7 @@
+{
+  "condition_id": "partial_occlusion",
+  "seed": 0,
+  "policy": "closed_loop",
+  "finger": "stock_aa_scallop",
+  "occluding_object": "cap"
+}

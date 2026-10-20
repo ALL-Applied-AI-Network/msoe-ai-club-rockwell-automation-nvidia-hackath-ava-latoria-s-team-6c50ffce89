@@ -17,7 +17,7 @@ This is your team's repository for the four-week physical AI hackathon run by Ro
 
 ## Team project
 
-**Vision-Guided Closed-Loop Manipulation for Robust Cube Stacking** — wrist-camera grasp/placement checks and bounded regrasp on the Grasping and Sorting dataset.
+**Vision-Guided Closed-Loop Manipulation with AI-Based Grasp Verification** — learned wrist-camera grasp quality (Isaac-synthetic training) + recovery on the Grasping and Sorting dataset. Design: [docs/AI_GRASP_VERIFICATION_DESIGN.md](docs/AI_GRASP_VERIFICATION_DESIGN.md).
 
 | Doc | Purpose |
 | --- | --- |
@@ -27,9 +27,25 @@ This is your team's repository for the four-week physical AI hackathon run by Ro
 
 ```bash
 python run_tests.py
+python scripts/generate_trials.py    # full 2×2 benchmark matrix
 python scripts/run_benchmark.py
-# optional: python -m pip install -e ".[dev]"
+python scripts/run_benchmark.py --execute --max-trials 1  # Isaac/Cosmos smoke run
+python scripts/run_benchmark.py --write-summary   # after sim runs land in results/runs/
 ```
+
+**AI grasp classifier (no Isaac yet):**
+
+```bash
+pip install -e ".[ml]"
+python scripts/generate_procedural_wrist_dataset.py
+python scripts/train_grasp_classifier.py --fast   # use full fine-tune on Brev when ready
+python scripts/eval_grasp_classifier.py
+python scripts/retrain_grasp_classifier.py --finetune   # after GRASP_FEEDBACK=1 sessions
+```
+
+Continual improvement: [docs/GRASP_DATA_AND_FEEDBACK.md](docs/GRASP_DATA_AND_FEEDBACK.md)
+
+Closed-loop sim (Isaac/Cosmos): see [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) — `CLOSED_LOOP=1`, optional `VERIFICATION=ai|rules`, and `TRIAL_CONFIG=...` on `run_sort_pipeline.sh`.
 
 Starter sim: `data/fanuc_er4ia_hackathon_starter_v05 (1)/fanuc_er4ia_sim/`
 

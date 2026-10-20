@@ -25,16 +25,22 @@ def _find_nano():
         if not (checkpoint / "config.json").is_file():
             raise SystemExit(f"Model snapshot is missing config.json: {checkpoint}")
         return checkpoint
-    cache_home = Path(
-        os.environ.get(
-            "HF_HOME",
-            str(
-                Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
-                / "huggingface"
-            ),
-        )
-    ).expanduser()
-    hub = Path(os.environ.get("HF_HUB_CACHE", str(cache_home / "hub"))).expanduser()
+    selected_hub = os.environ.get("HF_HUB_CACHE")
+    if selected_hub:
+        hub = Path(selected_hub).expanduser()
+    else:
+        hf_home = os.environ.get("HF_HOME")
+        if hf_home:
+            cache_home = Path(hf_home).expanduser()
+        else:
+            xdg_cache = os.environ.get("XDG_CACHE_HOME")
+            cache_root = (
+                Path(xdg_cache).expanduser()
+                if xdg_cache
+                else Path.home() / ".cache"
+            )
+            cache_home = cache_root / "huggingface"
+        hub = cache_home / "hub"
     base = hub / "models--nvidia--Cosmos3-Nano"
     snapshots = sorted((base / "snapshots").glob("*/config.json"))
     if not snapshots:

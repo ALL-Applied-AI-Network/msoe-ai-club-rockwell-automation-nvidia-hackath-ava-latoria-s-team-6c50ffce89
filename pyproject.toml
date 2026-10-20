@@ -11,6 +11,12 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["opencv-python>=4.8"]
 bench = ["pyyaml>=6.0"]
+ml = [
+  "opencv-python>=4.8",
+  "pyyaml>=6.0",
+  "torch>=2.2",
+  "torchvision>=0.17",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

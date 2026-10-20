@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Callable, Optional
@@ -22,6 +23,8 @@ from stacking_recovery.vision.place_check import place_check_stub
 
 class RecoveryDecision(str, Enum):
     PROCEED = "proceed"
+    SECOND_LOOK = "second_look"
+    REACQUIRE = "reacquire"
     REGRASP = "regrasp"
     SAFE_STOP = "safe_stop"
 
@@ -33,11 +36,14 @@ class ManipulationContext:
     table_pose_confidence: float
     grasp_attempt_index: int = 0
     placement_attempt_index: int = 0
+    uncertain_look_index: int = 0
+    pick_started_at: float = field(default_factory=time.perf_counter)
 
 
 class RecoveryPolicy:
     MAX_GRASP_RETRIES = 2
     MAX_PLACEMENT_RETRIES = 1
+    MAX_UNCERTAIN_LOOKS = 1
 
     def __init__(
         self,
@@ -58,9 +64,19 @@ class RecoveryPolicy:
         self._log_grasp(ctx, result, outcome="success" if result.seated else "retry")
         if result.seated and result.confidence >= CONFIDENCE_MIN:
             return RecoveryDecision.PROCEED, result
+        predicted_class = result.predicted_class or ""
+        if (
+            result.reason == FailureReason.LOW_CONFIDENCE
+            or predicted_class == "UNCERTAIN"
+        ) and ctx.uncertain_look_index < self.MAX_UNCERTAIN_LOOKS:
+            self._log_action(ctx, "second_look", result.reason.value, "retry")
+            return RecoveryDecision.SECOND_LOOK, result
         if ctx.grasp_attempt_index >= self.MAX_GRASP_RETRIES:
-            self._log_stop(ctx, result.reason.value)
+            self._log_stop(ctx, FailureReason.MAX_RETRIES.value)
             return RecoveryDecision.SAFE_STOP, result
+        if result.reason == FailureReason.EMPTY_GRASP or predicted_class == "EMPTY_GRASP":
+            self._log_action(ctx, "reacquire", result.reason.value, "retry")
+            return RecoveryDecision.REACQUIRE, result
         self._log_action(ctx, "regrasp", result.reason.value, "retry")
         return RecoveryDecision.REGRASP, result
 
@@ -72,16 +88,34 @@ class RecoveryPolicy:
         result = self._place_check(verify_image_bgr, ctx.stack_level)
         self._log_place(ctx, result)
         if result.placed and result.confidence >= CONFIDENCE_MIN:
+            self._log_pick_duration(ctx)
             return RecoveryDecision.PROCEED, result
         if ctx.placement_attempt_index >= self.MAX_PLACEMENT_RETRIES:
-            self._log_stop(ctx, result.reason.value)
+            self._log_stop(ctx, FailureReason.PLACEMENT_FAILURE.value)
             return RecoveryDecision.SAFE_STOP, result
         self._log_action(ctx, "regrasp", result.reason.value, "retry")
         return RecoveryDecision.REGRASP, result
 
+    def _log_pick_duration(self, ctx: ManipulationContext) -> None:
+        if not self._log_path:
+            return
+        duration = time.perf_counter() - ctx.pick_started_at
+        self._log_action(
+            ctx,
+            "place",
+            FailureReason.OK.value,
+            "success",
+            duration_s=duration,
+        )
+
     def _log_grasp(
         self, ctx: ManipulationContext, result: GraspCheckResult, outcome: str
     ) -> None:
+        extra: dict[str, object] = {}
+        if result.predicted_class is not None:
+            extra["predicted_class"] = result.predicted_class
+        if result.verification != "rules":
+            extra["verification"] = result.verification
         self._log_action(
             ctx,
             "grasp_check",
@@ -90,6 +124,7 @@ class RecoveryPolicy:
             seated=result.seated,
             check_confidence=result.confidence,
             yaw_error_deg=result.yaw_error_deg,
+            extra=extra or None,
         )
 
     def _log_place(self, ctx: ManipulationContext, result: PlaceCheckResult) -> None:
@@ -127,5 +162,8 @@ class RecoveryPolicy:
             placed=kwargs.get("placed"),  # type: ignore[arg-type]
             check_confidence=kwargs.get("check_confidence"),  # type: ignore[arg-type]
             yaw_error_deg=kwargs.get("yaw_error_deg"),  # type: ignore[arg-type]
+            duration_s=kwargs.get("duration_s"),  # type: ignore[arg-type]
+            placement_attempt_index=ctx.placement_attempt_index,
+            extra=dict(kwargs["extra"]) if kwargs.get("extra") else None,  # type: ignore[arg-type]
         )
         append_event(self._log_path, event)

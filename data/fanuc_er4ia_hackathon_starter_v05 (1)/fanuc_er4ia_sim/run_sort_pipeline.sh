@@ -21,7 +21,20 @@ fi
 "$ISAAC/python.sh" "$HERE/capture_scene.py" --out "$RUN"
 "$COSMOS" "$HERE/perceive.py" --run "$RUN" --stack-cubes
 "$HOST_PYTHON" "$HERE/plan_sort.py" --run "$RUN"
-"$ISAAC/python.sh" "$HERE/sort_scene.py" --run "$RUN"
+SORT_ARGS=(--run "$RUN")
+if [ "${CLOSED_LOOP:-0}" = "1" ]; then
+    SORT_ARGS+=(--closed-loop)
+fi
+if [ -n "${VERIFICATION:-}" ]; then
+    SORT_ARGS+=(--verification "$VERIFICATION")
+fi
+if [ "${GRASP_FEEDBACK:-0}" = "1" ]; then
+    SORT_ARGS+=(--grasp-feedback)
+fi
+if [ -n "${TRIAL_CONFIG:-}" ]; then
+    SORT_ARGS+=(--trial-config "$TRIAL_CONFIG")
+fi
+"$ISAAC/python.sh" "$HERE/sort_scene.py" "${SORT_ARGS[@]}"
 # Isaac shutdown can return zero even after an exception; check the result.
 "$HOST_PYTHON" - "$RUN" <<'PY'
 import json, sys

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import scene_config as C
+from closed_loop_support import ensure_stacking_recovery_on_path, rgba_to_bgr
 import fk
 import ik
 from cube_pose import square_yaw
@@ -170,6 +171,33 @@ def main():
         action="store_true",
         help="validate physical grasps without rendering frames",
     )
+    ap.add_argument(
+        "--closed-loop",
+        action="store_true",
+        help="wrist grasp_check and place_check with bounded regrasp",
+    )
+    ap.add_argument(
+        "--verification",
+        choices=["rules", "ai", "stub"],
+        default=None,
+        help="grasp verification backend (default rules; ai needs trained model)",
+    )
+    ap.add_argument(
+        "--trial-config",
+        default=None,
+        help="JSON trial from configs/trials (perturbation + policy)",
+    )
+    ap.add_argument(
+        "--collect-dataset",
+        default=None,
+        metavar="DIR",
+        help="Isaac: save every dwell wrist frame; weak label at lift into DIR/manifest.json",
+    )
+    ap.add_argument(
+        "--grasp-feedback",
+        action="store_true",
+        help="Append bad/mismatch grasp wrist frames to data/grasp_quality for retraining",
+    )
     a = ap.parse_args()
     if a.fps != 30:
         ap.error("Use 30 fps: two 1/60 s physics steps per video frame")
@@ -179,12 +207,59 @@ def main():
         raise SystemExit(
             f"Output already contains PNGs: {out}. Choose a fresh run directory."
         )
+    repo_root = ensure_stacking_recovery_on_path()
+    trial_overrides = {}
+    if a.trial_config:
+        from stacking_recovery.bench.perturbations import trial_to_overrides
+        from stacking_recovery.bench.trial_runtime import (
+            apply_plan_overrides,
+            load_trial_file,
+        )
+
+        trial_overrides = trial_to_overrides(
+            load_trial_file(Path(a.trial_config).resolve())
+        )
     plan = json.loads((run / "sort_plan.json").read_text())
+    if trial_overrides:
+        plan = apply_plan_overrides(plan, trial_overrides)
     validate_plan(plan)
+    closed_loop = a.closed_loop or plan.get("closed_loop_policy") == "closed_loop"
+    verification = (
+        a.verification
+        or trial_overrides.get("verification")
+        or plan.get("verification")
+        or "rules"
+    )
+    if trial_overrides.get("tip_static_friction") is not None:
+        C.SOFT_TIP_STATIC_FRIC = float(trial_overrides["tip_static_friction"])
+    if trial_overrides.get("finger") == "cube_flat_pad":
+        C.SCALLOP_R = 0.001
     if not plan["picks"]:
         raise SystemExit(
             "No eligible picks; inspect detections.json and sort_plan.json before rendering"
         )
+    import os
+
+    grasp_feedback = a.grasp_feedback or os.environ.get("GRASP_FEEDBACK", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    grasp_recorder = None
+    if repo_root is not None and (grasp_feedback or a.collect_dataset):
+        from stacking_recovery.data.grasp_feedback import GraspFeedbackRecorder
+        from stacking_recovery.vision.grasp_quality_model import load_grasp_config
+
+        cfg = load_grasp_config(repo_root / "configs" / "grasp_model.yaml")
+        fb = dict(cfg.get("feedback") or {})
+        fb["enabled"] = True
+        if a.collect_dataset:
+            fb["mode"] = "collect_all"
+            fb["data_root"] = str(Path(a.collect_dataset).resolve())
+        else:
+            fb["mode"] = "feedback"
+        cfg["feedback"] = fb
+        grasp_recorder = GraspFeedbackRecorder.from_config(repo_root, cfg)
     state = json.loads((run / "scene_state.json").read_text())
     # Resolve paths and validate before Kit changes the working directory.
     from isaacsim import SimulationApp
@@ -232,6 +307,32 @@ def main():
         world.reset()
         if cam is not None:
             cam.initialize()
+        wrist_cam = None
+        if (closed_loop or grasp_recorder) and not a.physics_only:
+            wrist_cam = Camera(
+                prim_path=cell.WRIST_CAM_PATH,
+                resolution=C.WRIST_CAM["resolution"],
+            )
+            wrist_cam.initialize()
+        recovery_policy = None
+        RecoveryDecision = None
+        ManipulationContext = None
+        if closed_loop and repo_root is not None:
+            from stacking_recovery.control.recovery_policy import (
+                ManipulationContext as MC,
+                RecoveryDecision as RD,
+                RecoveryPolicy,
+            )
+            from stacking_recovery.vision.grasp_check_factory import get_grasp_check_fn
+            from stacking_recovery.vision.place_check import place_check
+
+            RecoveryDecision = RD
+            ManipulationContext = MC
+            recovery_policy = RecoveryPolicy(
+                log_path=run / "manipulation.jsonl",
+                grasp_check_fn=get_grasp_check_fn(verification),
+                place_check_fn=place_check,
+            )
         arm = SingleArticulation(prim_path=C.ROBOT_PRIM, name="er4ia")
         arm.initialize()
         names = list(arm.dof_names)
@@ -380,110 +481,258 @@ def main():
                     place_spread_dir=pick["place_spread_dir"],
                 )
             event["initial_positions"] = start
-            for name, p0, p1, duration, j0, j1, spread in segments(pick, home):
-                spread_start = None
-                if spread is not None and name in ("approach", "carry"):
-                    r, _ = fk.fk(q)
-                    s = r @ np.array(C.FINGER_SPREAD_AXIS)
-                    s[2] = 0
-                    s /= np.linalg.norm(s)
-                    spread = np.array(spread, float)
-                    spread_start = s
-                n = round(duration * a.fps)
-                for i in range(n):
-                    t = ease((i + 1) / n)
-                    target = p0 + (p1 - p0) * t
-                    direction = (
-                        turn(spread_start, spread, t)
-                        if spread_start is not None
-                        else spread
-                    )
-                    q, ok = ik.solve(
-                        q, target, down, limits, tool_offset=tool, spread_dir=direction
-                    )
-                    if not ok:
-                        q, ok = ik.solve(
-                            q,
-                            target,
-                            down,
-                            limits,
-                            tool_offset=tool,
-                            spread_dir=direction,
-                            iters=500,
-                            damping=0.02,
-                        )
-                    r, actual = fk.tool_pose(q, tool)
-                    aligned = (
-                        direction is None
-                        or abs(np.dot(r @ np.array(C.FINGER_SPREAD_AXIS), direction))
-                        > 0.999
-                    )
-                    if not ok or np.linalg.norm(actual - target) > 0.001 or not aligned:
-                        event["trajectory_ik_failures"] += 1
-                        raise RuntimeError(
-                            f'IK failed: detection {pick["detection_id"]}, {name}, frame {i}; refusing off-target descent'
-                        )
-                    command(q, j0 + (j1 - j0) * t)
-                    for _ in range(2):
-                        world.step(render=not a.physics_only)
-                    if cam is not None:
-                        rgba = cam.get_rgba()
-                        if rgba is None:
-                            raise RuntimeError("Camera returned no image")
-                        cv2.imwrite(
-                            str(out / f"f{frame:05d}.png"),
-                            cv2.cvtColor(
-                                rgba[:, :, :3].astype(np.uint8), cv2.COLOR_RGB2BGR
-                            ),
-                        )
-                    if side is not None:
-                        rgba_side = side.get_rgba()
-                        if rgba_side is not None:
-                            cv2.imwrite(
-                                str(side_out / f"f{frame:05d}.png"),
-                                cv2.cvtColor(
-                                    rgba_side[:, :, :3].astype(np.uint8),
-                                    cv2.COLOR_RGB2BGR,
-                                ),
+            event["closed_loop_enabled"] = bool(recovery_policy)
+            max_grasp_retries = (
+                recovery_policy.MAX_GRASP_RETRIES if recovery_policy else 0
+            )
+            max_place_retries = (
+                recovery_policy.MAX_PLACEMENT_RETRIES if recovery_policy else 0
+            )
+            placement_attempt = 0
+            pick_finished = False
+            pick_abort = False
+            closed_loop_ctx = None
+            while not pick_finished and placement_attempt <= max_place_retries:
+                grasp_attempt = 0
+                retry_grasp = True
+                while retry_grasp and grasp_attempt <= max_grasp_retries:
+                    retry_grasp = False
+                    for name, p0, p1, duration, j0, j1, spread in segments(
+                        pick, home
+                    ):
+                        spread_start = None
+                        if spread is not None and name in ("approach", "carry"):
+                            r, _ = fk.fk(q)
+                            s = r @ np.array(C.FINGER_SPREAD_AXIS)
+                            s[2] = 0
+                            s /= np.linalg.norm(s)
+                            spread = np.array(spread, float)
+                            spread_start = s
+                        n = round(duration * a.fps)
+                        for i in range(n):
+                            t = ease((i + 1) / n)
+                            target = p0 + (p1 - p0) * t
+                            direction = (
+                                turn(spread_start, spread, t)
+                                if spread_start is not None
+                                else spread
                             )
-                    frame += 1
-                if name in ("descend", "dwell", "lift", "lower", "release"):
-                    measured = arm.get_joint_positions()
-                    rot, tip = fk.tool_pose(measured[arm_idx], tool)
-                    measured_spread = rot @ np.array(C.FINGER_SPREAD_AXIS)
-                    event.setdefault("phase_measurements", {})[name] = {
-                        "actual_tip_robot_frame_m": tip.tolist(),
-                        "actual_spread_dir": measured_spread.tolist(),
-                        "commanded_spread_dir": (
-                            np.asarray(direction).tolist()
-                            if direction is not None
-                            else None
-                        ),
-                        "wrist_joint_deg": float(np.degrees(measured[arm_idx][-1])),
-                        "commanded_tip_robot_frame_m": target.tolist(),
-                        "tip_error_mm": float(np.linalg.norm(tip - target) * 1000),
-                        "object_centre_world_m": (
-                            poses()[tracked]["centre"] if tracked else None
-                        ),
-                    }
-                if name == "dwell":
-                    jp = arm.get_joint_positions()
-                    event["jaw_gap_mm"] = float(
-                        (2 * C.JAW_OPEN - abs(jp[idx["jaw_l"]]) - abs(jp[idx["jaw_r"]]))
-                        * 1000
-                    )
-                if name == "lift":
-                    lifted = poses()
-                    event["objects_lifted"] = [
-                        key
-                        for key in wrappers
-                        if lifted[key]["centre"][2] - start[key]["centre"][2] > 0.025
-                    ]
-                    event["pickup_verified"] = tracked in event["objects_lifted"]
-                    print(
-                        f'[sort] detection {pick["detection_id"]}: lifted {event["objects_lifted"]}; pickup={event["pickup_verified"]}',
-                        flush=True,
-                    )
+                            q, ok = ik.solve(
+                                q, target, down, limits, tool_offset=tool, spread_dir=direction
+                            )
+                            if not ok:
+                                q, ok = ik.solve(
+                                    q,
+                                    target,
+                                    down,
+                                    limits,
+                                    tool_offset=tool,
+                                    spread_dir=direction,
+                                    iters=500,
+                                    damping=0.02,
+                                )
+                            r, actual = fk.tool_pose(q, tool)
+                            aligned = (
+                                direction is None
+                                or abs(np.dot(r @ np.array(C.FINGER_SPREAD_AXIS), direction))
+                                > 0.999
+                            )
+                            if not ok or np.linalg.norm(actual - target) > 0.001 or not aligned:
+                                event["trajectory_ik_failures"] += 1
+                                raise RuntimeError(
+                                    f'IK failed: detection {pick["detection_id"]}, {name}, frame {i}; refusing off-target descent'
+                                )
+                            command(q, j0 + (j1 - j0) * t)
+                            for _ in range(2):
+                                world.step(render=not a.physics_only)
+                            if cam is not None:
+                                rgba = cam.get_rgba()
+                                if rgba is None:
+                                    raise RuntimeError("Camera returned no image")
+                                cv2.imwrite(
+                                    str(out / f"f{frame:05d}.png"),
+                                    cv2.cvtColor(
+                                        rgba[:, :, :3].astype(np.uint8), cv2.COLOR_RGB2BGR
+                                    ),
+                                )
+                            if side is not None:
+                                rgba_side = side.get_rgba()
+                                if rgba_side is not None:
+                                    cv2.imwrite(
+                                        str(side_out / f"f{frame:05d}.png"),
+                                        cv2.cvtColor(
+                                            rgba_side[:, :, :3].astype(np.uint8),
+                                            cv2.COLOR_RGB2BGR,
+                                        ),
+                                    )
+                            frame += 1
+                        if name in ("descend", "dwell", "lift", "lower", "release"):
+                            measured = arm.get_joint_positions()
+                            rot, tip = fk.tool_pose(measured[arm_idx], tool)
+                            measured_spread = rot @ np.array(C.FINGER_SPREAD_AXIS)
+                            event.setdefault("phase_measurements", {})[name] = {
+                                "actual_tip_robot_frame_m": tip.tolist(),
+                                "actual_spread_dir": measured_spread.tolist(),
+                                "commanded_spread_dir": (
+                                    np.asarray(direction).tolist()
+                                    if direction is not None
+                                    else None
+                                ),
+                                "wrist_joint_deg": float(np.degrees(measured[arm_idx][-1])),
+                                "commanded_tip_robot_frame_m": target.tolist(),
+                                "tip_error_mm": float(np.linalg.norm(tip - target) * 1000),
+                                "object_centre_world_m": (
+                                    poses()[tracked]["centre"] if tracked else None
+                                ),
+                            }
+                        if name == "dwell":
+                            jp = arm.get_joint_positions()
+                            event["jaw_gap_mm"] = float(
+                                (2 * C.JAW_OPEN - abs(jp[idx["jaw_l"]]) - abs(jp[idx["jaw_r"]]))
+                                * 1000
+                            )
+                            grasp_bgr = None
+                            grasp_result = None
+                            if wrist_cam is not None and (
+                                recovery_policy is not None or grasp_recorder is not None
+                            ):
+                                for _ in range(5):
+                                    world.step(render=not a.physics_only)
+                                grasp_bgr = rgba_to_bgr(wrist_cam.get_rgba())
+                            if recovery_policy is not None and grasp_bgr is not None:
+                                closed_loop_ctx = ManipulationContext(
+                                    cube_colour=pick.get("colour", "unknown"),
+                                    stack_level=int(pick.get("stack_level", 0)),
+                                    table_pose_confidence=float(
+                                        pick.get("pose_confidence", 0.9)
+                                    ),
+                                    grasp_attempt_index=grasp_attempt,
+                                    placement_attempt_index=placement_attempt,
+                                )
+                                decision, grasp_result = recovery_policy.after_grasp_close(
+                                    closed_loop_ctx, grasp_bgr
+                                )
+                                event["closed_loop_grasp"] = grasp_result.to_dict()
+                                event["closed_loop_grasp_looks"] = [
+                                    grasp_result.to_dict()
+                                ]
+                                while decision == RecoveryDecision.SECOND_LOOK:
+                                    closed_loop_ctx.uncertain_look_index += 1
+                                    for _ in range(5):
+                                        world.step(render=not a.physics_only)
+                                    grasp_bgr = rgba_to_bgr(wrist_cam.get_rgba())
+                                    decision, grasp_result = (
+                                        recovery_policy.after_grasp_close(
+                                            closed_loop_ctx, grasp_bgr
+                                        )
+                                    )
+                                    event["closed_loop_grasp"] = (
+                                        grasp_result.to_dict()
+                                    )
+                                    event["closed_loop_grasp_looks"].append(
+                                        grasp_result.to_dict()
+                                    )
+                                if grasp_recorder is not None:
+                                    grasp_recorder.on_dwell(
+                                        grasp_bgr,
+                                        grasp_result,
+                                        detection_id=pick.get("detection_id"),
+                                        stack_level=pick.get("stack_level"),
+                                    )
+                                if decision in (
+                                    RecoveryDecision.REGRASP,
+                                    RecoveryDecision.REACQUIRE,
+                                ):
+                                    if decision == RecoveryDecision.REACQUIRE:
+                                        event["table_reacquire_requested"] = True
+                                    grasp_attempt += 1
+                                    retry_grasp = True
+                                    break
+                                if decision == RecoveryDecision.SAFE_STOP:
+                                    if grasp_recorder is not None:
+                                        grasp_recorder.on_grasp_failure_no_lift(
+                                            grasp_bgr,
+                                            grasp_result,
+                                            detection_id=pick.get("detection_id"),
+                                            stack_level=pick.get("stack_level"),
+                                        )
+                                    pick_abort = True
+                                    abort_reason = (
+                                        f'Closed-loop grasp stop at level {pick.get("stack_level")}: '
+                                        f"{grasp_result.reason.value}"
+                                    )
+                                    break
+                            elif grasp_recorder is not None and grasp_bgr is not None:
+                                from stacking_recovery.types import (
+                                    FailureReason,
+                                    GraspCheckResult,
+                                )
+
+                                grasp_result = GraspCheckResult(
+                                    seated=True,
+                                    yaw_error_deg=0.0,
+                                    confidence=1.0,
+                                    reason=FailureReason.STUB,
+                                    verification="collect",
+                                )
+                                grasp_recorder.on_dwell(
+                                    grasp_bgr,
+                                    grasp_result,
+                                    detection_id=pick.get("detection_id"),
+                                    stack_level=pick.get("stack_level"),
+                                )
+                        if name == "settle" and recovery_policy is not None:
+                            verify_cam = cam if cam is not None else wrist_cam
+                            if verify_cam is not None and closed_loop_ctx is not None:
+                                place_bgr = rgba_to_bgr(verify_cam.get_rgba())
+                                decision, place_result = recovery_policy.after_place(
+                                    closed_loop_ctx, place_bgr
+                                )
+                                event["closed_loop_place"] = place_result.to_dict()
+                                if decision == RecoveryDecision.REGRASP:
+                                    placement_attempt += 1
+                                    grasp_attempt = 0
+                                    retry_grasp = True
+                                    break
+                                if decision == RecoveryDecision.SAFE_STOP:
+                                    pick_abort = True
+                                    abort_reason = (
+                                        f'Closed-loop placement stop at level {pick.get("stack_level")}: '
+                                        f"{place_result.reason.value}"
+                                    )
+                                    break
+                        if pick_abort:
+                            break
+                        if name == "lift":
+                            lifted = poses()
+                            event["objects_lifted"] = [
+                                key
+                                for key in wrappers
+                                if lifted[key]["centre"][2] - start[key]["centre"][2] > 0.025
+                            ]
+                            event["pickup_verified"] = tracked in event["objects_lifted"]
+                            if grasp_recorder is not None:
+                                saved = grasp_recorder.on_lift(event)
+                                if saved:
+                                    event["grasp_feedback_saved"] = saved
+                            print(
+                                f'[sort] detection {pick["detection_id"]}: lifted {event["objects_lifted"]}; pickup={event["pickup_verified"]}',
+                                flush=True,
+                            )
+                        if pick_abort:
+                            break
+                        if not retry_grasp:
+                            pick_finished = True
+                    if pick_abort:
+                        break
+                if pick_abort:
+                    break
+            event["closed_loop_grasp_attempts"] = grasp_attempt
+            event["closed_loop_placement_attempts"] = placement_attempt
+            if pick_abort:
+                events.append(event)
+                print(f"[sort] {abort_reason}", flush=True)
+                break
             finish = poses()
             if tracked:
                 position = np.array(finish[tracked]["centre"])
@@ -555,6 +804,12 @@ def main():
                 "cube_edge_m": C.CUBE_EDGE,
                 "cube_tip_clearance_m": C.CUBE_TIP_CLEARANCE,
             },
+            "closed_loop": closed_loop,
+            "grasp_verification": verification if closed_loop else None,
+            "grasp_feedback": bool(grasp_recorder),
+            "grasp_dataset_collect": bool(a.collect_dataset),
+            "trial_condition": plan.get("trial_condition"),
+            "finger_id": plan.get("finger_id"),
             "task_complete": bool(plan["picks"])
             and abort_reason is None
             and len(events) == len(plan["picks"])
