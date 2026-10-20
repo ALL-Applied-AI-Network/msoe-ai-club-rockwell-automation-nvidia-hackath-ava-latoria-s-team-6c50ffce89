@@ -133,7 +133,9 @@ bbox is [x_min,y_min,x_max,y_max]. Use category cube, and colour yellow, blue,
 red, or unknown if ambiguous. Up to 12 cubes may be present."""
 
 
-def audit_stack_colours(model, processor, image_path, parsed, run):
+def audit_stack_colours(
+    model, processor, image_path, parsed, run, *, local_only=False
+):
     """Revisit missing colours in full and local views; no ground truth input."""
     from collections import Counter
     import cv2
@@ -199,7 +201,7 @@ left to right and y top to bottom. If none are visible, use {{"objects":[]}}."""
             ]
             return normalize(objects, width, H, x_offset)
 
-        replacements = query(image_path, "audit", W)
+        replacements = [] if local_only else query(image_path, "audit", W)
         if len(replacements) != 2:
             # Image-only proposals for tiny blocks missed in the wide view.
             # Colour/size segmentation proposes patches; Cosmos must confirm
@@ -278,9 +280,31 @@ Use unknown and low confidence if the geometry is ambiguous."""
                         )
                     )
             replacements = confirmed
-        parsed["objects"] = [
-            o for o in parsed["objects"] if o.get("colour") != colour
-        ] + replacements
+        if local_only:
+            # Preserve already validated cubes.  The local recovery pass adds
+            # only spatially distinct candidates; pose validation below still
+            # has the final say on whether each candidate is safe.
+            existing = [
+                o for o in parsed["objects"] if o.get("colour") == colour
+            ]
+            for candidate in replacements:
+                if not any(
+                    o.get("center") is not None
+                    and candidate.get("center") is not None
+                    and np.linalg.norm(
+                        (np.array(candidate["center"]) - o["center"]) * [W, H]
+                    )
+                    < 24
+                    for o in existing
+                ):
+                    existing.append(candidate)
+            parsed["objects"] = [
+                o for o in parsed["objects"] if o.get("colour") != colour
+            ] + existing
+        else:
+            parsed["objects"] = [
+                o for o in parsed["objects"] if o.get("colour") != colour
+            ] + replacements
     return parsed
 
 
@@ -298,7 +322,9 @@ Return only JSON: {"category":"cube","colour":"blue","yaw_deg":14.2,
 Use the measured yaw value from this query, not the example value above."""
 
 
-def inspect_cube_poses(model, processor, image_path, parsed, run):
+def inspect_cube_poses(
+    model, processor, image_path, parsed, run, *, only_missing_pose=False
+):
     """Cosmos reports semantics + pose with a calibrated image-geometry front end.
 
     Raw VLM corner regression failed validation. Geometry supplies measured
@@ -317,6 +343,12 @@ def inspect_cube_poses(model, processor, image_path, parsed, run):
     folder.mkdir(exist_ok=True)
     for i, obj in enumerate(parsed.get("objects", [])):
         if obj.get("category") != "cube":
+            continue
+        if (
+            only_missing_pose
+            and obj.get("pose_world") is not None
+            and float(obj.get("pose_confidence", 0)) >= 0.8
+        ):
             continue
         u, v = np.array(obj["center"]) * [W, H]
         radius = round(35 * W / 1920)
@@ -396,6 +428,57 @@ def inspect_cube_poses(model, processor, image_path, parsed, run):
             )
         except (KeyError, TypeError, ValueError):
             continue
+    return parsed
+
+
+def filter_stack_cube_poses(parsed, min_confidence=0.8, min_silhouette_iou=0.85):
+    """Keep only cube detections that are safe enough to enter robot planning.
+
+    Rejected detections remain in ``rejected_objects`` for debugging. This is
+    intentionally fail-closed: missing or malformed evidence is rejection, not
+    permission to move the physical robot.
+    """
+    import math
+
+    accepted = []
+    rejected = list(parsed.get("rejected_objects", []))
+    for original in parsed.get("objects", []):
+        obj = dict(original)
+        reason = None
+        try:
+            confidence = float(obj.get("pose_confidence", 0))
+            measurement = obj.get("image_pose_measurement") or {}
+            if not isinstance(measurement, dict):
+                raise TypeError("image_pose_measurement must be an object")
+            iou = float(measurement.get("silhouette_iou", 0))
+            if obj.get("category") != "cube":
+                reason = "not_a_cube"
+            elif obj.get("colour") not in ("yellow", "blue", "red"):
+                reason = "unsupported_cube_colour"
+            elif not math.isfinite(iou) or iou < min_silhouette_iou:
+                reason = "cube_silhouette_fit_uncertain"
+            elif not math.isfinite(confidence) or confidence < min_confidence:
+                reason = "cube_pose_low_confidence"
+            elif obj.get("pose_world") is None:
+                reason = "cube_pose_missing"
+        except (TypeError, ValueError):
+            reason = "cube_pose_evidence_invalid"
+        if reason is None:
+            obj["perception_eligible"] = True
+            accepted.append(obj)
+        else:
+            obj["perception_eligible"] = False
+            obj["skip_reason"] = reason
+            rejected.append(obj)
+    parsed["objects"] = accepted
+    parsed["rejected_objects"] = rejected
+    parsed["perception_safety"] = {
+        "mode": "fail_closed",
+        "minimum_pose_confidence": min_confidence,
+        "minimum_silhouette_iou": min_silhouette_iou,
+        "accepted": len(accepted),
+        "rejected": len(rejected),
+    }
     return parsed
 
 
@@ -815,8 +898,33 @@ if __name__ == "__main__":
         sys.exit(1)
     parsed = canonicalise(parsed)
     if a.stack_cubes:
+        from collections import Counter
+
         parsed = audit_stack_colours(model, processor, img, parsed, run)
         parsed = inspect_cube_poses(model, processor, img, parsed, run)
+        parsed = filter_stack_cube_poses(parsed)
+        counts = Counter(o.get("colour") for o in parsed["objects"])
+        missing = [c for c in ("yellow", "blue", "red") if counts[c] < 2]
+        if missing:
+            print(
+                "[perceive] unsafe or missing cube detections for "
+                + ", ".join(missing)
+                + "; running calibrated local recovery"
+            )
+            parsed = audit_stack_colours(
+                model, processor, img, parsed, run, local_only=True
+            )
+            parsed = inspect_cube_poses(
+                model, processor, img, parsed, run, only_missing_pose=True
+            )
+            parsed = filter_stack_cube_poses(parsed)
+        final_counts = Counter(o.get("colour") for o in parsed["objects"])
+        parsed["perception_safety"].update(
+            recovery_attempted_for=missing,
+            inventory_complete=all(
+                final_counts[colour] == 2 for colour in ("yellow", "blue", "red")
+            ),
+        )
         parsed["model"] = "Cosmos3-Nano"
         parsed["task"] = "cube_stack"
     if a.sort and not (a.verify or a.inventory):
