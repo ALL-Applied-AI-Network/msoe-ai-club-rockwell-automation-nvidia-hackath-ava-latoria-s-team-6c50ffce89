@@ -156,6 +156,25 @@ def validate_plan(plan):
                 raise ValueError("Invalid plan coordinates")
 
 
+def wide_up_object_names(run):
+    """Return evaluation-only wide-up objects when ground truth is available.
+
+    Dataset collection can legitimately start from a portable run containing
+    only ``scene_state.json`` and ``sort_plan.json``.  Missing ground truth
+    should omit the optional wide-cap evaluation, not discard an otherwise
+    complete simulation report after every grasp has run.
+    """
+    path = Path(run) / "ground_truth.json"
+    if not path.is_file():
+        return []
+    ground_truth = json.loads(path.read_text())
+    return [
+        obj["name"]
+        for obj in ground_truth.get("objects", [])
+        if obj.get("orientation") == "wide_end_up" and obj.get("name")
+    ]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -821,10 +840,7 @@ def main():
             "verified_placements": sum(e["placement_verified"] for e in events),
         }
         # Evaluate untouched wide-up objects only after executing the vision plan.
-        gt = json.loads((run / "ground_truth.json").read_text())
-        wide = [
-            g["name"] for g in gt["objects"] if g.get("orientation") == "wide_end_up"
-        ]
+        wide = wide_up_object_names(run)
         report["wide_caps"] = [
             {
                 "name": name,
