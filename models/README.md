@@ -15,3 +15,8 @@ Sim closed loop with AI:
 ```bash
 CLOSED_LOOP=1 VERIFICATION=ai TRIAL_CONFIG=... ./run_sort_pipeline.sh
 ```
+
+For demonstrations before the classifier has been validated on a representative
+Isaac or real-camera holdout set, use `VERIFICATION=ai_guarded`. This preserves
+the learned failure class for recovery but allows motion only when the AI and
+the deterministic wrist check both accept the grasp.

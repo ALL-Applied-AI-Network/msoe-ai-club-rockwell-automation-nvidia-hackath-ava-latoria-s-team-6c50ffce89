@@ -37,6 +37,10 @@ CLOSED_LOOP=1 VERIFICATION=ai TRIAL_CONFIG=/path/to/configs/trials/nominal_close
   ./run_sort_pipeline.sh /path/to/results/runs/my_trial
 ```
 
+For the safest learned-model demo, use `VERIFICATION=ai_guarded`. It requires
+both the MobileNet classifier and deterministic wrist geometry check to accept
+the grasp. Keep `rules` and `ai` as separate ablation modes when benchmarking.
+
 Train the classifier locally before Brev: `pip install -e ".[ml]"` then see [models/README.md](../models/README.md).
 
 Generate the full trial matrix: `python scripts/generate_trials.py`

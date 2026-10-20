@@ -12,7 +12,8 @@ from stacking_recovery.vision.grasp_quality_model import (
     GraspQualityPrediction,
     prediction_to_grasp_result,
 )
-from stacking_recovery.types import FailureReason
+from stacking_recovery.types import FailureReason, GraspCheckResult
+from stacking_recovery.vision.grasp_check_factory import build_guarded_ai_check
 
 
 class TestPredictionToResult(unittest.TestCase):
@@ -28,6 +29,57 @@ class TestPredictionToResult(unittest.TestCase):
         r = prediction_to_grasp_result(pred, {"thresholds": {"tau_good": 0.75, "tau_act": 0.55}})
         self.assertFalse(r.seated)
         self.assertEqual(r.reason, FailureReason.LOW_CONFIDENCE)
+
+
+class TestGuardedAiCheck(unittest.TestCase):
+    @staticmethod
+    def result(
+        seated: bool,
+        confidence: float,
+        reason: FailureReason,
+        *,
+        predicted_class: str | None = None,
+        yaw: float = 0.0,
+    ) -> GraspCheckResult:
+        return GraspCheckResult(
+            seated=seated,
+            yaw_error_deg=yaw,
+            confidence=confidence,
+            reason=reason,
+            predicted_class=predicted_class,
+            verification="ai" if predicted_class else "rules",
+        )
+
+    def test_proceeds_only_when_ai_and_rules_agree(self) -> None:
+        ai = self.result(True, 0.92, FailureReason.OK, predicted_class="GOOD")
+        rules = self.result(True, 0.81, FailureReason.OK, yaw=2.5)
+        check = build_guarded_ai_check(lambda _: ai, lambda _: rules)
+        observed = check(np.zeros((8, 8, 3), dtype=np.uint8))
+        self.assertTrue(observed.seated)
+        self.assertEqual(observed.verification, "ai_guarded")
+        self.assertEqual(observed.confidence, 0.81)
+        self.assertEqual(observed.yaw_error_deg, 2.5)
+
+    def test_rules_veto_confident_ai_false_positive(self) -> None:
+        ai = self.result(True, 0.97, FailureReason.OK, predicted_class="GOOD")
+        rules = self.result(False, 0.78, FailureReason.EMPTY_GRASP, yaw=float("nan"))
+        check = build_guarded_ai_check(lambda _: ai, lambda _: rules)
+        observed = check(np.zeros((8, 8, 3), dtype=np.uint8))
+        self.assertFalse(observed.seated)
+        self.assertEqual(observed.reason, FailureReason.EMPTY_GRASP)
+
+    def test_ai_rejection_is_not_overridden_by_rules(self) -> None:
+        ai = self.result(
+            False,
+            0.88,
+            FailureReason.MISALIGNED_CUBE,
+            predicted_class="SHIFTED",
+        )
+        rules = self.result(True, 0.84, FailureReason.OK, yaw=1.0)
+        check = build_guarded_ai_check(lambda _: ai, lambda _: rules)
+        observed = check(np.zeros((8, 8, 3), dtype=np.uint8))
+        self.assertFalse(observed.seated)
+        self.assertEqual(observed.reason, FailureReason.MISALIGNED_CUBE)
 
 
 class TestProceduralEndToEnd(unittest.TestCase):

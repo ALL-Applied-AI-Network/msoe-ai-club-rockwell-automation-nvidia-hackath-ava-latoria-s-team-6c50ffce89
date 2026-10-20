@@ -178,9 +178,12 @@ def main():
     )
     ap.add_argument(
         "--verification",
-        choices=["rules", "ai", "stub"],
+        choices=["rules", "ai", "ai_guarded", "stub"],
         default=None,
-        help="grasp verification backend (default rules; ai needs trained model)",
+        help=(
+            "grasp verification backend (default rules; ai modes need trained "
+            "model; ai_guarded also requires rule agreement)"
+        ),
     )
     ap.add_argument(
         "--trial-config",

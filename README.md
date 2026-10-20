@@ -45,7 +45,7 @@ python scripts/retrain_grasp_classifier.py --finetune   # after GRASP_FEEDBACK=1
 
 Continual improvement: [docs/GRASP_DATA_AND_FEEDBACK.md](docs/GRASP_DATA_AND_FEEDBACK.md)
 
-Closed-loop sim (Isaac/Cosmos): see [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) — `CLOSED_LOOP=1`, optional `VERIFICATION=ai|rules`, and `TRIAL_CONFIG=...` on `run_sort_pipeline.sh`.
+Closed-loop sim (Isaac/Cosmos): see [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) — `CLOSED_LOOP=1`, optional `VERIFICATION=rules|ai|ai_guarded`, and `TRIAL_CONFIG=...` on `run_sort_pipeline.sh`. Use `ai_guarded` for demos until the learned model has a representative Isaac/real-camera holdout evaluation; it proceeds only when AI and deterministic wrist checks agree.
 
 Starter sim: `data/fanuc_er4ia_hackathon_starter_v05 (1)/fanuc_er4ia_sim/`
 

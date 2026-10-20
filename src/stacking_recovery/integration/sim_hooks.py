@@ -53,7 +53,11 @@ def make_policy(
     from stacking_recovery.vision.grasp_check_factory import get_grasp_check_fn
     from stacking_recovery.vision.place_check import place_check
 
-    mode = verification if verification in ("rules", "ai", "stub") else "rules"
+    mode = (
+        verification
+        if verification in ("rules", "ai", "ai_guarded", "stub")
+        else "rules"
+    )
     return RecoveryPolicy(
         log_path=run_dir / "manipulation.jsonl",
         grasp_check_fn=get_grasp_check_fn(mode),  # type: ignore[arg-type]

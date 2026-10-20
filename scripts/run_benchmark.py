@@ -41,9 +41,12 @@ def main() -> None:
     )
     ap.add_argument(
         "--verification",
-        choices=("rules", "ai", "stub"),
+        choices=("rules", "ai", "ai_guarded", "stub"),
         default="rules",
-        help="Closed-loop grasp checker used by executed trials",
+        help=(
+            "Closed-loop grasp checker used by executed trials; ai_guarded "
+            "requires AI and deterministic rules to agree"
+        ),
     )
     ap.add_argument(
         "--max-trials",
