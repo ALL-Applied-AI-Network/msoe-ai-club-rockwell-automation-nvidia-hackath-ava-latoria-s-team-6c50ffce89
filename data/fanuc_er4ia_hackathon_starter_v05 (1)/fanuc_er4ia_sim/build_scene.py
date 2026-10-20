@@ -124,10 +124,17 @@ if args.shoot:
     from pxr import UsdGeom
 
     # Record the actual articulation state and source settings with every run.
+    measured_joint_positions = arm.get_joint_positions()
+    if measured_joint_positions is None:
+        # Replicator can invalidate the articulation physics view after a
+        # headless capture in Isaac Sim 6.0.  The commanded pose is still the
+        # authoritative state for this static calibration snapshot.
+        measured_joint_positions = q
+
     metadata = {
         "snapshot": bool(C.CALIBRATION_SNAPSHOT and not args.dynamic_capture),
         "joint_positions_deg": dict(
-            zip(names, np.rad2deg(arm.get_joint_positions()).tolist())
+            zip(names, np.rad2deg(measured_joint_positions).tolist())
         ),
         "requested_joint_positions_deg": shoot_pose,
         "tool_length_m": C.TOOL_LENGTH,
