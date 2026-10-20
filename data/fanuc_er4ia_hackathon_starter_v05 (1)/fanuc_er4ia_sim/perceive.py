@@ -6,11 +6,11 @@ Stage 2: scene understanding with Cosmos3-Nano (runs in the cosmos venv).
 Reads the table image, identifies cube colours/locations and reports
 image-measured tabletop poses. Writes detections.json and raw crop replies.
 
-Runtime notes, taken from the working AOI setup on this machine:
-  - transformers_cosmos3.Cosmos3ForConditionalGeneration, not a Cosmos 2.x path
-  - AutoConfig must be loaded explicitly and passed to from_pretrained, to dodge
-    a transformers bug where the model_type heuristic replaces the config with
-    vision_config and drops text_config.rope_scaling
+Runtime notes:
+  - transformers.Cosmos3OmniForConditionalGeneration is the supported
+    Reasoner-only load path for Cosmos3-Nano
+  - the Transformers integration drops generator, audio, and action weights, so
+    image reasoning fits on a 24 GB L4
 """
 
 import argparse, json, os, re, sys
@@ -49,20 +49,6 @@ def _find_nano():
             "to the downloaded snapshot, or configure HF_HOME/HF_HUB_CACHE."
         )
     return snapshots[-1].parent
-
-
-def _configure_cosmos_imports():
-    """Use an optional framework checkout; installed packages also work."""
-    checkout = os.environ.get("COSMOS3_ROOT")
-    if checkout:
-        root = Path(checkout).expanduser().resolve()
-        package = root / "packages" / "transformers-cosmos3"
-        if not (package / "transformers_cosmos3").is_dir():
-            raise SystemExit(
-                f"COSMOS3_ROOT does not contain transformers-cosmos3: {root}"
-            )
-        sys.path.insert(0, str(package))
-        sys.path.insert(0, str(root))
 
 
 PROMPT = """You are the vision system for a robot arm working at a bench.
@@ -553,24 +539,29 @@ def inspect_sort_objects(model, processor, image_path, parsed, run):
 
 
 def load_model(gpu=0):
-    _configure_cosmos_imports()
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
     import torch
-    from transformers import AutoConfig, AutoProcessor
-    from transformers_cosmos3 import Cosmos3ForConditionalGeneration
+    from transformers import AutoProcessor, Cosmos3OmniForConditionalGeneration
 
     ckpt = str(_find_nano())
     print(f"[perceive] loading Cosmos3-Nano on GPU {gpu} ...", flush=True)
-    config = AutoConfig.from_pretrained(ckpt, trust_remote_code=False)
-    model = Cosmos3ForConditionalGeneration.from_pretrained(
+    model = Cosmos3OmniForConditionalGeneration.from_pretrained(
         ckpt,
-        config=config,
-        torch_dtype=torch.bfloat16,
-        device_map="cuda",
-        attn_implementation="sdpa",
+        dtype=torch.bfloat16,
+        device_map="auto",
+        # Leave room for the vision activations on a 24 GB L4. Accelerate
+        # offloads the remaining layers to the host's 48 GB system memory.
+        max_memory={0: "18GiB", "cpu": "36GiB"},
     )
     model.eval()
-    processor = AutoProcessor.from_pretrained(ckpt, trust_remote_code=True)
+    processor = AutoProcessor.from_pretrained(
+        ckpt,
+        trust_remote_code=True,
+        # The Isaac world camera is 4K. About one megapixel is enough for the
+        # tabletop objects and avoids spending VRAM on unnecessary patches.
+        min_pixels=256 * 28 * 28,
+        max_pixels=1280 * 28 * 28,
+    )
     print("[perceive] model ready", flush=True)
     return model, processor
 
