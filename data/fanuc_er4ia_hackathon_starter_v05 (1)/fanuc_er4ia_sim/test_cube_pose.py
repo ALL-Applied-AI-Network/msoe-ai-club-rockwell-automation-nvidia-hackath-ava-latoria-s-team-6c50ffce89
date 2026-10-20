@@ -148,8 +148,7 @@ class CubePoseTests(unittest.TestCase):
             answer = {
                 "category": "cube",
                 "colour": "blue",
-                "yaw_deg": 17.0,
-                "pose_confidence": 0.9,
+                "confidence": 0.9,
             }
             obj = dict(category="cube", colour="blue", center=[0.5, 0.5])
             with patch("perceive.ask", return_value=json.dumps(answer)), patch(
@@ -163,7 +162,8 @@ class CubePoseTests(unittest.TestCase):
                 edge_pose(self.cam, observed["top_edge_endpoints"]), expected
             )
             self.assertEqual(
-                observed["pose_source"], "Cosmos_reports_calibrated_image_pose"
+                observed["pose_source"],
+                "calibrated_image_pose_confirmed_by_Cosmos",
             )
             self.assertTrue((root / "cube_pose_crops/cube_0_measurement.json").exists())
             np.testing.assert_allclose(
@@ -171,31 +171,33 @@ class CubePoseTests(unittest.TestCase):
                 [0.35, 0.15, self.cam.table_z + C.CUBE_EDGE / 2],
             )
 
-    def test_cosmos_cannot_replace_measurement_with_invented_pose(self):
+    def test_cosmos_numeric_pose_is_ignored_but_semantic_rejection_is_honoured(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             im = root / "im.png"
             cv2.imwrite(str(im), np.zeros((1080, 1920, 3), np.uint8))
             (root / "camera.json").write_text(json.dumps(self.cam.j))
-            for answer in (
+            answers = (
                 {
                     "category": "cube",
                     "colour": "blue",
                     "yaw_deg": -30.0,
-                    "pose_confidence": 0.99,
+                    "confidence": 0.99,
                 },
                 {
                     "category": "unknown",
                     "colour": "unknown",
                     "yaw_deg": 17.0,
-                    "pose_confidence": 0.2,
+                    "confidence": 0.2,
                 },
-            ):
+            )
+            results = []
+            for answer in answers:
                 with patch("perceive.ask", return_value=json.dumps(answer)), patch(
                     "cube_pose.refine_pose",
                     return_value=(np.array([0.35, 0.15]), 17.0, 0.95),
                 ):
-                    result = inspect_cube_poses(
+                    results.append(inspect_cube_poses(
                         None,
                         None,
                         im,
@@ -205,9 +207,12 @@ class CubePoseTests(unittest.TestCase):
                             ]
                         },
                         root,
-                    )
-                self.assertIsNone(result["objects"][0]["top_edge_endpoints"])
-                self.assertEqual(result["objects"][0]["pose_confidence"], 0)
+                    ))
+            accepted, rejected = (r["objects"][0] for r in results)
+            self.assertAlmostEqual(accepted["pose_world"]["yaw_deg"], 17.0)
+            self.assertIsNotNone(accepted["top_edge_endpoints"])
+            self.assertIsNone(rejected["top_edge_endpoints"])
+            self.assertEqual(rejected["pose_confidence"], 0)
 
     def test_uncertain_geometry_does_not_prompt_model_or_fabricate_pose(self):
         with tempfile.TemporaryDirectory() as tmp:

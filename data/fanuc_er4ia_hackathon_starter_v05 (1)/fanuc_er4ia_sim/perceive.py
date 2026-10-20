@@ -308,27 +308,29 @@ Use unknown and low confidence if the geometry is ambiguous."""
     return parsed
 
 
-CUBE_POSE_PROMPT = """Inspect the small cube in this camera crop and report its
-colour and tabletop pose. A calibrated image-geometry front end has measured
-its top-face orientation and centre from this SAME image, using the known cube
-size and table camera calibration. These measurements are image-derived, not
-simulator object coordinates. Use the supplied measurements for quantitative
-pose; do not guess a new angle or regress pixel corners from this blurry crop.
-Check that the object is a cube of the expected colour. If inconsistent or
-ambiguous, report unknown and low confidence. Square yaw is modulo 90 degrees;
-roll and pitch are constrained by the cube resting upright on the table.
-Return only JSON: {"category":"cube","colour":"blue","yaw_deg":14.2,
-"pose_confidence":0.9,"reason":"visible cube geometry and colour"}.
-Use the measured yaw value from this query, not the example value above."""
+CUBE_POSE_PROMPT = """Inspect the object in this tightly focused camera crop.
+Decide only whether it is a small plastic cube and whether its visible colour
+matches the expected colour. Reject round caps, cylindrical parts, shadows and
+background. A cube has a compact square top face and straight side edges; a cap
+has a much wider circular flange or rim.
+
+A calibrated image-geometry front end has already measured position and yaw
+from the original full-resolution image. Do NOT estimate, repeat, correct, or
+judge numeric pose. Your role is semantic confirmation only.
+
+Return only JSON: {"category":"cube","colour":"blue","confidence":0.9,
+"reason":"compact square top and straight side edges"}.
+Allowed category values: cube, cap, unknown. Allowed colour values: yellow,
+blue, red, unknown. Use unknown and confidence below 0.8 when ambiguous."""
 
 
 def inspect_cube_poses(
     model, processor, image_path, parsed, run, *, only_missing_pose=False
 ):
-    """Cosmos reports semantics + pose with a calibrated image-geometry front end.
+    """Cosmos confirms semantics; calibrated image geometry supplies the pose.
 
-    Raw VLM corner regression failed validation. Geometry supplies measured
-    yaw; Cosmos confirms cube/colour and explicitly reports that pose. No GT.
+    Raw VLM pose regression failed validation. Geometry supplies measured yaw
+    and position; Cosmos only confirms cube/colour. No ground truth is used.
     """
     import cv2
     import numpy as np
@@ -373,7 +375,7 @@ def inspect_cube_poses(
             json.dumps(measurement, indent=2)
         )
         obj.update(
-            pose_source="Cosmos_reports_calibrated_image_pose",
+            pose_source="calibrated_image_pose_pending_semantic_confirmation",
             image_pose_measurement=measurement,
             pose_confidence=0,
             top_edge_endpoints=None,
@@ -391,19 +393,18 @@ def inspect_cube_poses(
         answer = parse_json(raw) or {}
         obj["pose_reason"] = answer.get("reason", "")
         try:
-            reported = float(answer["yaw_deg"])
-            conf = float(answer.get("pose_confidence", 0))
+            # pose_confidence is accepted as a legacy key so older cached model
+            # replies remain readable, but Cosmos no longer controls the pose.
+            conf = float(answer.get("confidence", answer.get("pose_confidence", 0)))
             valid = (
                 answer.get("category") == "cube"
                 and answer.get("colour") == obj["colour"]
-                and np.isfinite(reported)
                 and np.isfinite(conf)
                 and 0.8 <= conf <= 1
-                and abs(square_yaw(reported - yaw)) <= 3
             )
             if not valid:
                 continue
-            t = np.deg2rad(reported)
+            t = np.deg2rad(yaw)
             rot = np.array([[np.cos(t), -np.sin(t)], [np.sin(t), np.cos(t)]])
             points = [
                 cam.project(
@@ -416,11 +417,12 @@ def inspect_cube_poses(
             ]
             obj.update(
                 top_edge_endpoints=(np.array(points) / [W, H]).tolist(),
-                pose_confidence=conf,
-                cosmos_reported_yaw_deg=reported,
+                pose_source="calibrated_image_pose_confirmed_by_Cosmos",
+                pose_confidence=min(conf, quality),
+                semantic_confidence=conf,
                 pose_world=dict(
                     position_m=measurement["position_world_m"],
-                    yaw_deg=square_yaw(reported),
+                    yaw_deg=square_yaw(yaw),
                     roll_deg=0,
                     pitch_deg=0,
                     yaw_symmetry_deg=90,
