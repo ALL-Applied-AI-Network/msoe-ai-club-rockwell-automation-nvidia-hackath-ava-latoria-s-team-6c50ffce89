@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from stacking_recovery.vision.grasp_labels import GRASP_CLASSES
+from stacking_recovery.data.dataset_split import VALID_SPLITS
 
 try:
     import cv2
@@ -111,6 +112,8 @@ class GraspDatasetStore:
             meta=dict(meta or {}),
         )
         record.validate()
+        if split not in VALID_SPLITS:
+            raise ValueError(f"Invalid split: {split}")
         fname = f"{source}_{record.sample_id}.png"
         rel = f"images/{split}/{label}/{fname}"
         out = self.data_root / rel
@@ -123,6 +126,7 @@ class GraspDatasetStore:
             "source": record.source,
             "sample_id": record.sample_id,
             "created_at": record.created_at,
+            "split": split,
             **record.meta,
         }
         append_manifest_row(self.manifest_path, row)

@@ -80,8 +80,14 @@ def segments(pick, home):
     ]
 
 
-def validate_plan(plan):
-    if plan.get("source") != "Cosmos3-Nano":
+def validate_plan(plan, *, allow_collection_ground_truth=False):
+    source_ok = plan.get("source") == "Cosmos3-Nano"
+    collection_source_ok = (
+        allow_collection_ground_truth
+        and plan.get("source") == "Isaac-sim-ground-truth-data-collection-only"
+        and plan.get("data_collection_only") is True
+    )
+    if not (source_ok or collection_source_ok):
         raise ValueError(
             "Expected a Cosmos3-Nano sort plan; run the perception pipeline first"
         )
@@ -213,16 +219,27 @@ def main():
         "--collect-dataset",
         default=None,
         metavar="DIR",
-        help="Isaac: save every dwell wrist frame; weak label at lift into DIR/manifest.json",
+        help=(
+            "Isaac: save table-camera before/after grasp crops; weak label at lift "
+            "into DIR/manifest.json"
+        ),
     )
     ap.add_argument(
         "--grasp-feedback",
         action="store_true",
         help="Append bad/mismatch grasp wrist frames to data/grasp_quality for retraining",
     )
+    ap.add_argument(
+        "--max-picks",
+        type=int,
+        default=None,
+        help="Run only the first N planned picks (quick simulator validation)",
+    )
     a = ap.parse_args()
     if a.fps != 30:
         ap.error("Use 30 fps: two 1/60 s physics steps per video frame")
+    if a.collect_dataset and a.physics_only:
+        ap.error("--collect-dataset needs rendering; remove --physics-only")
     run = Path(a.run).resolve()
     out = Path(a.out).resolve() if a.out else run / "frames"
     if out.exists() and any(out.glob("*.png")):
@@ -244,7 +261,7 @@ def main():
     plan = json.loads((run / "sort_plan.json").read_text())
     if trial_overrides:
         plan = apply_plan_overrides(plan, trial_overrides)
-    validate_plan(plan)
+    validate_plan(plan, allow_collection_ground_truth=bool(a.collect_dataset))
     closed_loop = a.closed_loop or plan.get("closed_loop_policy") == "closed_loop"
     verification = (
         a.verification
@@ -269,6 +286,7 @@ def main():
     )
     grasp_recorder = None
     if repo_root is not None and (grasp_feedback or a.collect_dataset):
+        from stacking_recovery.data.dataset_split import split_for_seed
         from stacking_recovery.data.grasp_feedback import GraspFeedbackRecorder
         from stacking_recovery.vision.grasp_quality_model import load_grasp_config
 
@@ -282,6 +300,16 @@ def main():
             fb["mode"] = "feedback"
         cfg["feedback"] = fb
         grasp_recorder = GraspFeedbackRecorder.from_config(repo_root, cfg)
+        collection_seed = int(plan.get("trial_seed") or 0)
+        collection_meta = {
+            "seed": collection_seed,
+            "split": split_for_seed(collection_seed),
+            "trial_condition": plan.get("trial_condition") or "nominal",
+            "injected_yaw_error_deg": float(plan.get("trial_yaw_offset_deg") or 0),
+            "run_id": run.name,
+        }
+    else:
+        collection_meta = {}
     state = json.loads((run / "scene_state.json").read_text())
     # Resolve paths and validate before Kit changes the working directory.
     from isaacsim import SimulationApp
@@ -290,7 +318,7 @@ def main():
     try:
         import cv2
         import omni.usd
-        from pxr import UsdPhysics
+        from pxr import UsdGeom, UsdPhysics
         from isaacsim.core.api import World
         from isaacsim.core.prims import SingleArticulation, SingleXFormPrim
         from isaacsim.core.utils.types import ArticulationAction
@@ -317,9 +345,11 @@ def main():
             "wrist": cell.WRIST_CAM_PATH,
         }
         configs = {"table": C.TABLE_CAM, "side": C.SIDE_CAM, "wrist": C.WRIST_CAM}
+        render_enabled = not a.physics_only
+        record_video = render_enabled and not a.collect_dataset
         cam = (
             None
-            if a.physics_only
+            if not record_video
             else Camera(
                 prim_path=cam_paths[a.camera],
                 resolution=configs[a.camera]["resolution"],
@@ -330,12 +360,46 @@ def main():
         if cam is not None:
             cam.initialize()
         wrist_cam = None
-        if (closed_loop or grasp_recorder) and not a.physics_only:
+        if closed_loop and render_enabled:
             wrist_cam = Camera(
                 prim_path=cell.WRIST_CAM_PATH,
                 resolution=C.WRIST_CAM["resolution"],
             )
             wrist_cam.initialize()
+        table_observation_cam = None
+        table_observation_model = None
+        if grasp_recorder is not None and render_enabled:
+            if cam is not None and a.camera == "table":
+                table_observation_cam = cam
+            else:
+                table_observation_cam = Camera(
+                    prim_path=cell.TABLE_CAM_PATH,
+                    resolution=C.TABLE_CAM["resolution"],
+                )
+                table_observation_cam.initialize()
+
+            from backproject import CameraModel
+
+            table_prim = stage.GetPrimAtPath(cell.TABLE_CAM_PATH)
+            table_gcam = UsdGeom.Camera(table_prim)
+            table_xf = UsdGeom.Xformable(table_prim).ComputeLocalToWorldTransform(0)
+            table_w, table_h = C.TABLE_CAM["resolution"]
+            table_observation_model = CameraModel(
+                {
+                    "resolution": [table_w, table_h],
+                    "focal_length_mm": float(table_gcam.GetFocalLengthAttr().Get()),
+                    "horizontal_aperture_mm": float(
+                        table_gcam.GetHorizontalApertureAttr().Get()
+                    ),
+                    "vertical_aperture_mm": float(
+                        table_gcam.GetVerticalApertureAttr().Get()
+                    ),
+                    "camera_to_world": [
+                        [float(table_xf[r][c]) for c in range(4)] for r in range(4)
+                    ],
+                    "table_top_z": float(C.TABLE_TOP_Z + C.SURFACE_DZ),
+                }
+            )
         recovery_policy = None
         RecoveryDecision = None
         ManipulationContext = None
@@ -385,14 +449,14 @@ def main():
         arm.set_joint_positions(full)
         for _ in range(120):
             command(q, C.JAW_OPEN)
-            world.step(render=not a.physics_only)
+            world.step(render=render_enabled)
         for name in wrappers:
             UsdPhysics.RigidBodyAPI(
                 stage.GetPrimAtPath("/World/" + name)
             ).CreateKinematicEnabledAttr().Set(False)
         for _ in range(30):
             command(q, C.JAW_OPEN)
-            world.step(render=not a.physics_only)
+            world.step(render=render_enabled)
 
         def poses():
             values = {}
@@ -441,14 +505,15 @@ def main():
         out.mkdir(parents=True, exist_ok=True)
         # Additional fixed side camera provides a clear lift/contact review.
         side = None
-        if not a.physics_only and a.camera != "side":
+        if record_video and a.camera != "side":
             side = Camera(
                 prim_path=cell.SIDE_CAM_PATH, resolution=C.SIDE_CAM["resolution"]
             )
             side.initialize()
         side_out = run / "side_frames"
         side_out.mkdir(exist_ok=True)
-        for pick in plan["picks"]:
+        picks_to_run = plan["picks"][: a.max_picks] if a.max_picks else plan["picks"]
+        for pick in picks_to_run:
             # Select equivalent jaw-direction signs once for the whole grasp,
             # so approach/descend and carry/lower cannot differ by 180 degrees.
             pick = dict(pick)
@@ -465,6 +530,28 @@ def main():
                         destination = -destination
                     pick["place_spread_dir"] = destination.tolist()
             start = poses()
+            collection_before_bgr = None
+            collection_observation_meta = {}
+            if table_observation_cam is not None and table_observation_model is not None:
+                table_rgba = table_observation_cam.get_rgba()
+                if table_rgba is None:
+                    raise RuntimeError("Table camera returned no before-grasp image")
+                collection_before_bgr = rgba_to_bgr(table_rgba)
+                crop_uv = table_observation_model.project(
+                    [
+                        float(pick["xy"][0]),
+                        float(pick["xy"][1]),
+                        C.TABLE_TOP_Z + C.SURFACE_DZ + C.CUBE_EDGE / 2,
+                    ]
+                )
+                if crop_uv is None:
+                    raise RuntimeError("Planned pick is behind the table camera")
+                collection_observation_meta = {
+                    "observation_source": "table_before_after",
+                    "crop_center_uv": [float(crop_uv[0]), float(crop_uv[1])],
+                    "crop_size_px": 128,
+                    "camera_resolution": [table_w, table_h],
+                }
             prefix = {"cap": "SortCap", "cube": "SortCube", "vial": "SortVial"}[
                 pick["category"]
             ]
@@ -566,7 +653,7 @@ def main():
                                 )
                             command(q, j0 + (j1 - j0) * t)
                             for _ in range(2):
-                                world.step(render=not a.physics_only)
+                                world.step(render=render_enabled)
                             if cam is not None:
                                 rgba = cam.get_rgba()
                                 if rgba is None:
@@ -619,7 +706,7 @@ def main():
                                 recovery_policy is not None or grasp_recorder is not None
                             ):
                                 for _ in range(5):
-                                    world.step(render=not a.physics_only)
+                                    world.step(render=render_enabled)
                                 grasp_bgr = rgba_to_bgr(wrist_cam.get_rgba())
                             if recovery_policy is not None and grasp_bgr is not None:
                                 closed_loop_ctx = ManipulationContext(
@@ -641,7 +728,7 @@ def main():
                                 while decision == RecoveryDecision.SECOND_LOOK:
                                     closed_loop_ctx.uncertain_look_index += 1
                                     for _ in range(5):
-                                        world.step(render=not a.physics_only)
+                                        world.step(render=render_enabled)
                                     grasp_bgr = rgba_to_bgr(wrist_cam.get_rgba())
                                     decision, grasp_result = (
                                         recovery_policy.after_grasp_close(
@@ -656,10 +743,14 @@ def main():
                                     )
                                 if grasp_recorder is not None:
                                     grasp_recorder.on_dwell(
-                                        grasp_bgr,
+                                        collection_before_bgr
+                                        if collection_before_bgr is not None
+                                        else grasp_bgr,
                                         grasp_result,
                                         detection_id=pick.get("detection_id"),
                                         stack_level=pick.get("stack_level"),
+                                        **collection_observation_meta,
+                                        **collection_meta,
                                     )
                                 if decision in (
                                     RecoveryDecision.REGRASP,
@@ -684,7 +775,7 @@ def main():
                                         f"{grasp_result.reason.value}"
                                     )
                                     break
-                            elif grasp_recorder is not None and grasp_bgr is not None:
+                            elif grasp_recorder is not None and collection_before_bgr is not None:
                                 from stacking_recovery.types import (
                                     FailureReason,
                                     GraspCheckResult,
@@ -698,10 +789,12 @@ def main():
                                     verification="collect",
                                 )
                                 grasp_recorder.on_dwell(
-                                    grasp_bgr,
+                                    collection_before_bgr,
                                     grasp_result,
                                     detection_id=pick.get("detection_id"),
                                     stack_level=pick.get("stack_level"),
+                                    **collection_observation_meta,
+                                    **collection_meta,
                                 )
                         if name == "settle" and recovery_policy is not None:
                             verify_cam = cam if cam is not None else wrist_cam
@@ -734,7 +827,14 @@ def main():
                             ]
                             event["pickup_verified"] = tracked in event["objects_lifted"]
                             if grasp_recorder is not None:
-                                saved = grasp_recorder.on_lift(event)
+                                after_bgr = None
+                                if table_observation_cam is not None:
+                                    table_rgba = table_observation_cam.get_rgba()
+                                    if table_rgba is not None:
+                                        after_bgr = rgba_to_bgr(table_rgba)
+                                saved = grasp_recorder.on_lift(
+                                    event, after_image_bgr=after_bgr
+                                )
                                 if saved:
                                     event["grasp_feedback_saved"] = saved
                             print(
@@ -815,7 +915,8 @@ def main():
             "after": after,
             "picks": events,
             "frames": frame,
-            "rendered": not a.physics_only,
+            "rendered": render_enabled,
+            "video_frames_saved": record_video,
             "task": plan.get("task", "sort"),
             "abort_reason": abort_reason,
             "hardware": {

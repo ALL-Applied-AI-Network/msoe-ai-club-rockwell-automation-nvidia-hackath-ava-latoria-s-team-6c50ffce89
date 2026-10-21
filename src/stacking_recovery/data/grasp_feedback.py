@@ -27,8 +27,9 @@ class PendingGraspCapture:
 
 class GraspFeedbackRecorder:
     """
-    At dwell: stash wrist frame + verifier output.
-    At lift: apply physics weak label; save per mode (Isaac collect vs runtime feedback).
+    At dwell: stash the selected observation + verifier output.
+    At lift: optionally make a table-camera before/after pair, apply the physics
+    weak label, and save per mode (Isaac collect vs runtime feedback).
     """
 
     def __init__(
@@ -80,16 +81,43 @@ class GraspFeedbackRecorder:
             meta=dict(meta),
         )
 
-    def on_lift(self, event: dict[str, Any]) -> Optional[str]:
+    def on_lift(
+        self,
+        event: dict[str, Any],
+        *,
+        after_image_bgr: Optional[np.ndarray] = None,
+    ) -> Optional[str]:
         """Call after physics pickup check; returns saved relative path if any."""
         if self.mode == "off" or self._pending is None:
             return None
         pending = self._pending
         self._pending = None
 
+        if pending.meta.get("observation_source") == "table_before_after":
+            if after_image_bgr is None:
+                return None
+            from stacking_recovery.data.table_grasp_observation import (
+                make_before_after_observation,
+            )
+
+            center = pending.meta.get("crop_center_uv")
+            if not isinstance(center, (list, tuple)) or len(center) != 2:
+                return None
+            pair, quality = make_before_after_observation(
+                pending.image_bgr,
+                after_image_bgr,
+                (float(center[0]), float(center[1])),
+                crop_size=int(pending.meta.get("crop_size_px", 256)),
+            )
+            pending.image_bgr = pair
+            pending.meta["observation_quality"] = quality.to_dict()
+            if not quality.valid:
+                return None
+
         physics_label = label_from_physics_event(
             pickup_verified=bool(event.get("pickup_verified")),
             perceived_yaw_deg=event.get("perceived_yaw_deg"),
+            yaw_error_deg=pending.meta.get("injected_yaw_error_deg"),
             jaw_gap_mm=event.get("jaw_gap_mm"),
             closed_loop_grasp=event.get("closed_loop_grasp"),
         )
@@ -145,11 +173,13 @@ class GraspFeedbackRecorder:
             meta["detection_id"] = event["detection_id"]
         if event.get("stack_level") is not None:
             meta["stack_level"] = event["stack_level"]
+        split = str(pending.meta.get("split", "train"))
         rec = self.store.save_sample(
             pending.image_bgr,
             label,
             source=source,
             meta=meta,
+            split=split,
         )
         self.saved_count += 1
         return rec.path

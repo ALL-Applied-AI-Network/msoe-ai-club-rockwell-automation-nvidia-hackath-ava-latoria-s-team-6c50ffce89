@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Batch Isaac wrist dataset collection via sort_scene.py --collect-dataset.
+Batch Isaac table-camera dataset collection via sort_scene.py --collect-dataset.
 
 Requires ISAAC python and an existing run directory (capture + perceive + plan).
 
 Example (on Brev):
-  export ISAAC=/isaacsim
+  export ISAAC=/isaac-sim
   export REPO=/path/to/team-repo
   $ISAAC/python.sh $REPO/scripts/sim/collect_wrist_dataset.py \\
     --repo $REPO \\
@@ -38,8 +38,7 @@ def main() -> int:
         help="Dataset root (default: repo/data/grasp_quality)",
     )
     ap.add_argument("--trial", type=Path, default=None, help="configs/trials/*.json")
-    ap.add_argument("--isaac", type=Path, default=Path(os.environ.get("ISAAC", "/isaacsim")))
-    ap.add_argument("--physics-only", action="store_true")
+    ap.add_argument("--isaac", type=Path, default=Path(os.environ.get("ISAAC", "/isaac-sim")))
     args = ap.parse_args()
 
     repo = args.repo.resolve()
@@ -69,12 +68,11 @@ def main() -> int:
         str(run),
         "--collect-dataset",
         str(out),
+        "--out",
+        str(run / "grasp_collection_frames" / (args.trial.stem if args.trial else "nominal")),
     ]
     if args.trial:
         cmd.extend(["--trial-config", str((repo / args.trial).resolve() if not args.trial.is_absolute() else args.trial)])
-    if args.physics_only:
-        cmd.append("--physics-only")
-
     print("Running:", " ".join(cmd), flush=True)
     return subprocess.call(cmd)
 

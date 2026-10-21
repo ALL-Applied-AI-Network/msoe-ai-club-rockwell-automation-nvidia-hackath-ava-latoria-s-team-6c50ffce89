@@ -23,10 +23,11 @@ except ImportError:
 
 from stacking_recovery.data.wrist_augment import augment_wrist_bgr
 from stacking_recovery.data.grasp_dataset_store import resolve_data_root
+from stacking_recovery.data.dataset_split import split_manifest_by_seed
 from stacking_recovery.vision.grasp_labels import CLASS_TO_INDEX, GRASP_CLASSES
 from stacking_recovery.vision.grasp_quality_model import (
     build_mobilenet_v3,
-    crop_roi,
+    crop_for_observation,
     load_grasp_config,
     preprocess,
     save_model_checkpoint,
@@ -51,7 +52,7 @@ class GraspDataset(Dataset):
             img = cv2.imread(str(data_root / row["path"]))
             if img is None:
                 raise FileNotFoundError(row["path"])
-            crop = crop_roi(img, roi)
+            crop = crop_for_observation(img, roi, row.get("observation_source"))
             if augment:
                 crop = augment_wrist_bgr(crop, aug_cfg, rng=rng)
             self.samples.append((preprocess(crop, size), CLASS_TO_INDEX[row["label"]]))
@@ -61,20 +62,6 @@ class GraspDataset(Dataset):
 
     def __getitem__(self, idx: int):
         return self.samples[idx]
-
-
-def split_manifest(manifest: list[dict], val_frac: float, seed: int) -> tuple[list, list]:
-    rng = random.Random(seed)
-    by_label: dict[str, list] = {c: [] for c in GRASP_CLASSES}
-    for row in manifest:
-        by_label[row["label"]].append(row)
-    train, val = [], []
-    for rows in by_label.values():
-        rng.shuffle(rows)
-        n_val = max(1, int(len(rows) * val_frac))
-        val.extend(rows[:n_val])
-        train.extend(rows[n_val:])
-    return train, val
 
 
 def main() -> None:
@@ -98,11 +85,31 @@ def main() -> None:
         default=None,
         help="stop if val_acc does not improve for N epochs (default from config or off)",
     )
+    ap.add_argument(
+        "--observation-source",
+        default=None,
+        help="Train only one observation format, e.g. table_before_after",
+    )
     args = ap.parse_args()
     args.data = resolve_data_root(ROOT, args.data)
     cfg = load_grasp_config(args.config)
     manifest = json.loads((args.data / "manifest.json").read_text(encoding="utf-8"))
-    train_rows, val_rows = split_manifest(manifest, 0.15, 42)
+    if args.observation_source:
+        manifest = [
+            row
+            for row in manifest
+            if row.get("observation_source") == args.observation_source
+        ]
+    train_rows, val_rows, test_rows = split_manifest_by_seed(manifest)
+    if not train_rows or not val_rows:
+        raise SystemExit(
+            "Dataset needs non-empty train and val seed splits. Collect multiple seeds "
+            "or add explicit split fields to manifest.json."
+        )
+    print(
+        f"dataset split: train={len(train_rows)} val={len(val_rows)} test={len(test_rows)}",
+        flush=True,
+    )
     roi = cfg["roi"]
     size = int(cfg["input_size"])
     aug_cfg = cfg.get("augmentation") or {}
@@ -184,9 +191,11 @@ def main() -> None:
         meta={
             "trained_at": time.time(),
             "n_train": len(train_rows),
-            "source": "procedural",
+            "source": "mixed",
             "best_val_acc": best_acc,
             "best_epoch": best_epoch,
+            "n_val": len(val_rows),
+            "n_test_held_out": len(test_rows),
         },
     )
     print(f"Saved {out_path} (best val_acc={best_acc:.3f} at epoch {best_epoch})")

@@ -7,7 +7,6 @@ import argparse
 import json
 import sys
 import time
-from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,8 +17,10 @@ try:
 except ImportError:
     raise SystemExit("pip install opencv-python") from None
 
-from stacking_recovery.vision.grasp_quality_model import GraspQualityModel, load_grasp_config
+from stacking_recovery.vision.grasp_quality_model import GraspQualityModel
 from stacking_recovery.data.grasp_dataset_store import resolve_data_root
+from stacking_recovery.data.evaluation import classification_report
+from stacking_recovery.vision.grasp_labels import GRASP_CLASSES
 
 
 def main() -> None:
@@ -31,33 +32,68 @@ def main() -> None:
         help="Dataset root (default: GRASP_DATA_ROOT or repo/data/grasp_quality)",
     )
     ap.add_argument("--max", type=int, default=500)
+    ap.add_argument("--split", choices=["train", "val", "test", "all"], default="test")
+    ap.add_argument("--source", action="append", default=[], help="Filter by source; repeatable")
+    ap.add_argument(
+        "--observation-source",
+        default=None,
+        help="Filter by observation format, e.g. table_before_after",
+    )
+    ap.add_argument("--json-out", type=Path, default=None)
     args = ap.parse_args()
     args.data = resolve_data_root(ROOT, args.data)
     manifest = json.loads((args.data / "manifest.json").read_text(encoding="utf-8"))
     model = GraspQualityModel()
     model.load()
-    correct = 0
-    confusion: Counter[tuple[str, str]] = Counter()
+    selected = [
+        row
+        for row in manifest
+        if (args.split == "all" or row.get("split") == args.split)
+        and (not args.source or row.get("source") in args.source)
+        and (
+            not args.observation_source
+            or row.get("observation_source") == args.observation_source
+        )
+    ][: args.max]
+    if not selected:
+        raise SystemExit(
+            f"No samples matched split={args.split!r} source={args.source or 'any'}."
+        )
+    pairs: list[tuple[str, str]] = []
     latencies = []
-    for row in manifest[: args.max]:
+    skipped = 0
+    for row in selected:
         img = cv2.imread(str(args.data / row["path"]))
         if img is None:
+            skipped += 1
             continue
         t0 = time.perf_counter()
-        pred = model.predict(img)
+        pred = model.predict(
+            img, observation_source=row.get("observation_source")
+        )
         latencies.append(time.perf_counter() - t0)
         truth = row["label"]
-        confusion[(truth, pred.class_name)] += 1
-        if pred.class_name == truth:
-            correct += 1
-    n = min(len(manifest), args.max)
-    print(f"accuracy={correct / n:.3f} n={n}")
+        pairs.append((truth, pred.class_name))
+    report = classification_report(pairs, list(GRASP_CLASSES))
+    report.update({"split": args.split, "sources": args.source, "skipped_images": skipped})
+    print(
+        f"accuracy={report['accuracy']:.3f} n={report['n']} "
+        f"unsafe_good_rate={report['unsafe_good_rate']:.3f}"
+    )
     if latencies:
         ms = 1000 * sum(latencies) / len(latencies)
         print(f"mean_latency_ms={ms:.1f}")
-    for (truth, pred), count in sorted(confusion.items()):
-        if truth != pred:
-            print(f"  {truth} -> {pred}: {count}")
+    for label, metrics in report["per_class"].items():
+        if metrics["support"]:
+            print(
+                f"  {label}: precision={metrics['precision']:.3f} "
+                f"recall={metrics['recall']:.3f} f1={metrics['f1']:.3f} "
+                f"n={metrics['support']}"
+            )
+    if args.json_out:
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        args.json_out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote {args.json_out}")
 
 
 if __name__ == "__main__":

@@ -34,6 +34,7 @@ def label_from_physics_event(
     *,
     pickup_verified: bool,
     perceived_yaw_deg: Optional[float] = None,
+    yaw_error_deg: Optional[float] = None,
     jaw_gap_mm: Optional[float] = None,
     closed_loop_grasp: Optional[dict[str, Any]] = None,
 ) -> str:
@@ -44,8 +45,10 @@ def label_from_physics_event(
     """
     if pickup_verified:
         return "GOOD"
-    yaw = perceived_yaw_deg
-    if yaw is not None and abs(yaw) > 13.5:
+    # Absolute object yaw is not an error: rotated cubes are valid targets. Use an
+    # injected/observed grasp error instead. Keep perceived_yaw_deg in the API for
+    # compatibility with older callers, but do not treat it as a failure angle.
+    if yaw_error_deg is not None and abs(yaw_error_deg) > 13.5:
         return "ROTATED"
     if jaw_gap_mm is not None and jaw_gap_mm < 2.0:
         return "EMPTY_GRASP"

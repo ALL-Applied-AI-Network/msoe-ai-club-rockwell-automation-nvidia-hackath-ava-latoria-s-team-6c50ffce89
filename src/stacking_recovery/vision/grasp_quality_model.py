@@ -51,6 +51,17 @@ def crop_roi(image_bgr: np.ndarray, roi: dict[str, float]) -> np.ndarray:
     return image_bgr[y0:y1, x0:x1]
 
 
+def crop_for_observation(
+    image_bgr: np.ndarray,
+    roi: dict[str, float],
+    observation_source: Optional[str] = None,
+) -> np.ndarray:
+    """Keep prepared table-camera pairs intact; crop legacy wrist frames."""
+    if observation_source == "table_before_after":
+        return image_bgr
+    return crop_roi(image_bgr, roi)
+
+
 def preprocess(image_bgr: np.ndarray, size: int) -> "torch.Tensor":
     if torch is None or cv2 is None:
         raise RuntimeError("torch and opencv required for ML grasp check")
@@ -116,11 +127,18 @@ class GraspQualityModel:
         self._model.load_state_dict(state)
         self._model.eval()
 
-    def predict(self, image_bgr: np.ndarray) -> GraspQualityPrediction:
+    def predict(
+        self,
+        image_bgr: np.ndarray,
+        *,
+        observation_source: Optional[str] = None,
+    ) -> GraspQualityPrediction:
         if self._model is None:
             self.load()
         assert self._model is not None and self._device is not None
-        roi = crop_roi(image_bgr, self.config["roi"])
+        roi = crop_for_observation(
+            image_bgr, self.config["roi"], observation_source
+        )
         size = int(self.config.get("input_size", 224))
         x = preprocess(roi, size).unsqueeze(0)
         with torch.no_grad():

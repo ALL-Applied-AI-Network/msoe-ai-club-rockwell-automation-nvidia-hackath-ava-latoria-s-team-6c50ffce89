@@ -31,7 +31,7 @@ from stacking_recovery.data.wrist_augment import augment_wrist_bgr
 from stacking_recovery.vision.grasp_labels import CLASS_TO_INDEX, GRASP_CLASSES
 from stacking_recovery.vision.grasp_quality_model import (
     build_mobilenet_v3,
-    crop_roi,
+    crop_for_observation,
     load_grasp_config,
     preprocess,
     save_model_checkpoint,
@@ -58,7 +58,7 @@ class GraspDataset(Dataset):
             img = cv2.imread(str(data_root / row["path"]))
             if img is None:
                 raise FileNotFoundError(row["path"])
-            crop = crop_roi(img, roi)
+            crop = crop_for_observation(img, roi, row.get("observation_source"))
             if augment:
                 crop = augment_wrist_bgr(crop, self.aug_cfg, rng=self.rng)
             self.samples.append((preprocess(crop, size), CLASS_TO_INDEX[row["label"]]))

@@ -28,6 +28,27 @@ class TestPhysicsLabels(unittest.TestCase):
             "EMPTY_GRASP",
         )
 
+    def test_absolute_cube_yaw_is_not_a_grasp_error(self) -> None:
+        self.assertEqual(
+            label_from_physics_event(
+                pickup_verified=False,
+                perceived_yaw_deg=32.0,
+                jaw_gap_mm=5.0,
+            ),
+            "SHIFTED",
+        )
+
+    def test_injected_yaw_error_labels_rotation(self) -> None:
+        self.assertEqual(
+            label_from_physics_event(
+                pickup_verified=False,
+                perceived_yaw_deg=32.0,
+                yaw_error_deg=14.0,
+                jaw_gap_mm=5.0,
+            ),
+            "ROTATED",
+        )
+
 
 class TestFeedbackRecorder(unittest.TestCase):
     def test_mismatch_saved(self) -> None:

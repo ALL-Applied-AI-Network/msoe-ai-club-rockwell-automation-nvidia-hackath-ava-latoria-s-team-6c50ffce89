@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from stacking_recovery.data.dataset_validation import PNG_SIGNATURE, validate_dataset
 from stacking_recovery.data.grasp_dataset_store import resolve_data_root
+from stacking_recovery.data.dataset_split import split_for_seed, split_manifest_by_seed
 
 
 class TestDataRoot(unittest.TestCase):
@@ -70,6 +71,26 @@ class TestDatasetValidation(unittest.TestCase):
             report = validate_dataset(root)
             self.assertFalse(report["ok"])
             self.assertTrue(any("missing image" in error for error in report["errors"]))
+
+
+class TestSeedSplits(unittest.TestCase):
+    def test_twenty_seeds_have_expected_ratio(self) -> None:
+        counts = {name: 0 for name in ("train", "val", "test")}
+        for seed in range(20):
+            counts[split_for_seed(seed)] += 1
+        self.assertEqual(counts, {"train": 14, "val": 3, "test": 3})
+
+    def test_same_seed_never_leaks(self) -> None:
+        rows = [
+            {"path": f"{seed}-{i}.png", "label": "GOOD", "seed": seed}
+            for seed in range(20)
+            for i in range(2)
+        ]
+        train, val, test = split_manifest_by_seed(rows)
+        groups = [{row["seed"] for row in split} for split in (train, val, test)]
+        self.assertFalse(groups[0] & groups[1])
+        self.assertFalse(groups[0] & groups[2])
+        self.assertFalse(groups[1] & groups[2])
 
 
 if __name__ == "__main__":

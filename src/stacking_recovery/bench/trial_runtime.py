@@ -43,6 +43,7 @@ def apply_plan_overrides(plan: dict[str, Any], overrides: dict[str, Any]) -> dic
     plan["finger_id"] = overrides.get("finger", "stock_aa_scallop")
     plan["trial_condition"] = overrides.get("condition_id")
     plan["trial_seed"] = overrides.get("seed")
+    plan["trial_yaw_offset_deg"] = float(overrides.get("yaw_offset_deg", 0) or 0)
     return plan
 
 
