@@ -3,7 +3,9 @@ set -euo pipefail
 
 # Run this inside the Brev Isaac/Jupyter container. It starts the browser
 # stream with the saved workcell and the safe looping motion demonstration.
-REPO_DIR="${TEAM_REPO_DIR:-/workspace/team-repo}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+REPO_DIR="${TEAM_REPO_DIR:-${DEFAULT_REPO_DIR}}"
 DATA_DIR="${TEAM_DATA_DIR:-/workspace/team-data}"
 ISAAC_DIR="${ISAAC:-/isaac-sim}"
 VIEWER_SCRIPT="${REPO_DIR}/scripts/brev/open_fanuc_viewer.py"

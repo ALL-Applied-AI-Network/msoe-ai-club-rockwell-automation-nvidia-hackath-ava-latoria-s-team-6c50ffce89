@@ -10,7 +10,9 @@ else
   DEFAULT_BREV_WORKSPACE=/home/ubuntu/workspace
 fi
 BREV_WORKSPACE="${BREV_WORKSPACE:-${DEFAULT_BREV_WORKSPACE}}"
-TEAM_REPO_DIR="${TEAM_REPO_DIR:-${BREV_WORKSPACE}/team-repo}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+TEAM_REPO_DIR="${TEAM_REPO_DIR:-${DEFAULT_REPO_DIR}}"
 GRASP_DATA_ROOT="${GRASP_DATA_ROOT:-${BREV_WORKSPACE}/team-data/grasp_quality}"
 ENV_FILE="${BREV_WORKSPACE}/team-data.env"
 
