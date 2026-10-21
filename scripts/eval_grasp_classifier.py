@@ -17,10 +17,14 @@ try:
 except ImportError:
     raise SystemExit("pip install opencv-python") from None
 
-from stacking_recovery.vision.grasp_quality_model import GraspQualityModel
+from stacking_recovery.vision.grasp_quality_model import (
+    GraspQualityModel,
+    configured_classes,
+    load_grasp_config,
+    normalize_grasp_label,
+)
 from stacking_recovery.data.grasp_dataset_store import resolve_data_root
 from stacking_recovery.data.evaluation import classification_report
-from stacking_recovery.vision.grasp_labels import GRASP_CLASSES
 
 
 def main() -> None:
@@ -32,6 +36,7 @@ def main() -> None:
         help="Dataset root (default: GRASP_DATA_ROOT or repo/data/grasp_quality)",
     )
     ap.add_argument("--max", type=int, default=500)
+    ap.add_argument("--config", type=Path, default=ROOT / "configs" / "grasp_model.yaml")
     ap.add_argument("--split", choices=["train", "val", "test", "all"], default="test")
     ap.add_argument("--source", action="append", default=[], help="Filter by source; repeatable")
     ap.add_argument(
@@ -43,7 +48,9 @@ def main() -> None:
     args = ap.parse_args()
     args.data = resolve_data_root(ROOT, args.data)
     manifest = json.loads((args.data / "manifest.json").read_text(encoding="utf-8"))
-    model = GraspQualityModel()
+    cfg = load_grasp_config(args.config)
+    classes = configured_classes(cfg)
+    model = GraspQualityModel(cfg)
     model.load()
     selected = [
         row
@@ -72,10 +79,18 @@ def main() -> None:
             img, observation_source=row.get("observation_source")
         )
         latencies.append(time.perf_counter() - t0)
-        truth = row["label"]
+        truth = normalize_grasp_label(row["label"], cfg)
         pairs.append((truth, pred.class_name))
-    report = classification_report(pairs, list(GRASP_CLASSES))
-    report.update({"split": args.split, "sources": args.source, "skipped_images": skipped})
+    report = classification_report(pairs, classes)
+    report.update(
+        {
+            "split": args.split,
+            "sources": args.source,
+            "skipped_images": skipped,
+            "classes": classes,
+            "label_mode": cfg.get("label_mode", "detailed"),
+        }
+    )
     print(
         f"accuracy={report['accuracy']:.3f} n={report['n']} "
         f"unsafe_good_rate={report['unsafe_good_rate']:.3f}"

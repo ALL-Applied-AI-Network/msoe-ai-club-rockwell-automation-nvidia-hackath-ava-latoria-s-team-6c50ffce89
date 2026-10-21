@@ -1,0 +1,45 @@
+# Binary pickup verifier trained from fixed table-camera before/after crops.
+model_path: models/grasp_pickup_table_mobilenet_v3.pt
+backbone: mobilenet_v3_small
+input_size: 224
+num_classes: 2
+label_mode: pickup_binary
+
+classes:
+  - GOOD
+  - SHIFTED
+
+# Prepared table pairs are already cropped; retained for legacy compatibility.
+roi:
+  y0: 0.0
+  y1: 1.0
+  x0: 0.0
+  x1: 1.0
+
+thresholds:
+  tau_good: 0.75
+  tau_act: 0.55
+
+training:
+  batch_size: 16
+  epochs: 15
+  lr: 0.001
+  weight_decay: 0.0001
+  early_stop_patience: 5
+
+augmentation:
+  brightness_delta: 0.12
+  contrast_delta: 0.10
+  noise_std: 6
+  blur_prob: 0.15
+  blur_ksize: 3
+  jpeg_prob: 0.15
+  jpeg_quality_min: 70
+  jpeg_quality_max: 95
+
+feedback:
+  enabled: false
+  mode: feedback
+  data_root: data/grasp_quality
+  record_bad_grasps: true
+  record_mismatch: true

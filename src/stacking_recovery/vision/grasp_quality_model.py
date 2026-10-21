@@ -12,10 +12,8 @@ import yaml
 
 from stacking_recovery.types import FailureReason, GraspCheckResult
 from stacking_recovery.vision.grasp_labels import (
-    CLASS_TO_INDEX,
     GRASP_CLASSES,
     class_to_failure_reason,
-    is_seated_class,
 )
 
 try:
@@ -40,6 +38,21 @@ def repo_root() -> Path:
 def load_grasp_config(path: Optional[Path] = None) -> dict[str, Any]:
     cfg_path = path or repo_root() / "configs" / "grasp_model.yaml"
     return yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+
+
+def configured_classes(config: dict[str, Any]) -> list[str]:
+    """Return ordered checkpoint labels and reject ambiguous configs."""
+    classes = list(config.get("classes") or GRASP_CLASSES)
+    if not classes or len(classes) != len(set(classes)):
+        raise ValueError("grasp model classes must be a non-empty unique list")
+    return classes
+
+
+def normalize_grasp_label(label: str, config: dict[str, Any]) -> str:
+    """Map detailed failure causes to the observable table-camera outcome."""
+    if config.get("label_mode") == "pickup_binary":
+        return "GOOD" if label == "GOOD" else "SHIFTED"
+    return label
 
 
 def crop_roi(image_bgr: np.ndarray, roi: dict[str, float]) -> np.ndarray:
@@ -101,6 +114,7 @@ class GraspQualityPrediction:
 class GraspQualityModel:
     def __init__(self, config: Optional[dict[str, Any]] = None) -> None:
         self.config = config or load_grasp_config()
+        self.classes = configured_classes(self.config)
         self._model: Optional[nn.Module] = None
         self._device = torch.device("cpu") if torch else None
 
@@ -119,7 +133,7 @@ class GraspQualityModel:
                 f"Grasp model not found: {self.model_path}. "
                 "Run scripts/train_grasp_classifier.py first."
             )
-        num_classes = len(self.config.get("classes", GRASP_CLASSES))
+        num_classes = len(self.classes)
         # The checkpoint already contains every weight. Avoid an internet download
         # when the model is loaded in the hackathon lab or on a fresh Brev instance.
         self._model = build_mobilenet_v3(num_classes, pretrained=False)
@@ -145,9 +159,10 @@ class GraspQualityModel:
             logits = self._model(x)
             probs = torch.softmax(logits, dim=1)[0].cpu().numpy()
         idx = int(probs.argmax())
-        name = GRASP_CLASSES[idx] if idx < len(GRASP_CLASSES) else "UNCERTAIN"
+        name = self.classes[idx] if idx < len(self.classes) else "UNCERTAIN"
         prob_map = {
-            GRASP_CLASSES[i]: float(probs[i]) for i in range(min(len(probs), len(GRASP_CLASSES)))
+            self.classes[i]: float(probs[i])
+            for i in range(min(len(probs), len(self.classes)))
         }
         return GraspQualityPrediction(
             class_name=name,

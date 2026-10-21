@@ -28,11 +28,12 @@ except ImportError:
 
 from stacking_recovery.data.grasp_dataset_store import load_manifest, resolve_data_root
 from stacking_recovery.data.wrist_augment import augment_wrist_bgr
-from stacking_recovery.vision.grasp_labels import CLASS_TO_INDEX, GRASP_CLASSES
 from stacking_recovery.vision.grasp_quality_model import (
     build_mobilenet_v3,
+    configured_classes,
     crop_for_observation,
     load_grasp_config,
+    normalize_grasp_label,
     preprocess,
     save_model_checkpoint,
 )
@@ -49,11 +50,16 @@ class GraspDataset(Dataset):
         augment: bool = False,
         aug_cfg: dict | None = None,
         seed: int = 0,
+        config: dict | None = None,
     ) -> None:
         self.samples: list[tuple[torch.Tensor, int]] = []
         self.augment = augment
         self.aug_cfg = aug_cfg
         self.rng = random.Random(seed)
+        config = config or {}
+        class_to_index = {
+            label: index for index, label in enumerate(configured_classes(config))
+        }
         for row in rows:
             img = cv2.imread(str(data_root / row["path"]))
             if img is None:
@@ -61,7 +67,10 @@ class GraspDataset(Dataset):
             crop = crop_for_observation(img, roi, row.get("observation_source"))
             if augment:
                 crop = augment_wrist_bgr(crop, self.aug_cfg, rng=self.rng)
-            self.samples.append((preprocess(crop, size), CLASS_TO_INDEX[row["label"]]))
+            label = normalize_grasp_label(row["label"], config)
+            if label not in class_to_index:
+                raise ValueError(f"label {label!r} is not in configured classes")
+            self.samples.append((preprocess(crop, size), class_to_index[label]))
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -70,11 +79,16 @@ class GraspDataset(Dataset):
         return self.samples[idx]
 
 
-def split_manifest(manifest: list[dict], val_frac: float, seed: int) -> tuple[list, list]:
+def split_manifest(
+    manifest: list[dict], val_frac: float, seed: int, config: dict
+) -> tuple[list, list]:
     rng = random.Random(seed)
-    by_label: dict[str, list] = {c: [] for c in GRASP_CLASSES}
+    by_label: dict[str, list] = {c: [] for c in configured_classes(config)}
     for row in manifest:
-        by_label[row["label"]].append(row)
+        label = normalize_grasp_label(row["label"], config)
+        if label not in by_label:
+            raise ValueError(f"label {label!r} is not in configured classes")
+        by_label[label].append(row)
     train, val = [], []
     for rows in by_label.values():
         rng.shuffle(rows)
@@ -113,7 +127,7 @@ def main() -> None:
         by_source[src] = by_source.get(src, 0) + 1
     print(f"manifest n={len(manifest)} by_source={json.dumps(by_source)}", flush=True)
 
-    train_rows, val_rows = split_manifest(manifest, 0.15, 42)
+    train_rows, val_rows = split_manifest(manifest, 0.15, 42, cfg)
     roi = cfg["roi"]
     size = int(cfg["input_size"])
     aug_cfg = cfg.get("augmentation") or {}
@@ -125,14 +139,16 @@ def main() -> None:
         augment=True,
         aug_cfg=aug_cfg,
         seed=42,
+        config=cfg,
     )
-    val_ds = GraspDataset(val_rows, args.data, roi, size, augment=False)
+    val_ds = GraspDataset(val_rows, args.data, roi, size, augment=False, config=cfg)
 
     batch = int(cfg.get("training", {}).get("batch_size", 32))
     train_loader = DataLoader(train_ds, batch_size=batch, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=batch)
 
-    model = build_mobilenet_v3(len(GRASP_CLASSES))
+    classes = configured_classes(cfg)
+    model = build_mobilenet_v3(len(classes))
     train_cfg = cfg.get("training", {})
     lr = float(train_cfg.get("lr", 1e-3))
     if args.finetune:
@@ -186,6 +202,9 @@ def main() -> None:
             "n_train": len(train_rows),
             "finetune": args.finetune,
             "sources": by_source,
+            "classes": classes,
+            "label_mode": cfg.get("label_mode", "detailed"),
+            "config": str(args.config),
         },
     )
     print(f"Saved {out_path}", flush=True)

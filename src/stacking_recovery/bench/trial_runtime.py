@@ -16,6 +16,9 @@ def load_trial_file(path: Path) -> dict[str, Any]:
 
 def apply_pick_overrides(pick: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
     pick = copy.deepcopy(pick)
+    # Preserve the perceived object location for camera crops. Motion
+    # perturbations change the commanded grasp, not where the cube appears.
+    pick.setdefault("observation_xy", copy.deepcopy(pick.get("xy")))
     yaw_off = float(overrides.get("yaw_offset_deg", 0) or 0)
     if yaw_off and "yaw_deg" in pick:
         yaw = float(pick["yaw_deg"]) + yaw_off

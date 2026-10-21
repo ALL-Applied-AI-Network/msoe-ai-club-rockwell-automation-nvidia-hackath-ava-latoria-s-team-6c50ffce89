@@ -17,6 +17,14 @@ from stacking_recovery.vision.grasp_check_factory import build_guarded_ai_check
 
 
 class TestPredictionToResult(unittest.TestCase):
+    def test_binary_pickup_labels_fold_failure_causes(self) -> None:
+        from stacking_recovery.vision.grasp_quality_model import normalize_grasp_label
+
+        cfg = {"label_mode": "pickup_binary", "classes": ["GOOD", "SHIFTED"]}
+        self.assertEqual(normalize_grasp_label("GOOD", cfg), "GOOD")
+        self.assertEqual(normalize_grasp_label("SHIFTED", cfg), "SHIFTED")
+        self.assertEqual(normalize_grasp_label("ROTATED", cfg), "SHIFTED")
+
     def test_good_high_confidence_seated(self) -> None:
         pred = GraspQualityPrediction("GOOD", 0.9, {"GOOD": 0.9})
         r = prediction_to_grasp_result(pred, {"thresholds": {"tau_good": 0.75, "tau_act": 0.55}})

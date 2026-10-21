@@ -24,11 +24,12 @@ except ImportError:
 from stacking_recovery.data.wrist_augment import augment_wrist_bgr
 from stacking_recovery.data.grasp_dataset_store import resolve_data_root
 from stacking_recovery.data.dataset_split import split_manifest_by_seed
-from stacking_recovery.vision.grasp_labels import CLASS_TO_INDEX, GRASP_CLASSES
 from stacking_recovery.vision.grasp_quality_model import (
     build_mobilenet_v3,
+    configured_classes,
     crop_for_observation,
     load_grasp_config,
+    normalize_grasp_label,
     preprocess,
     save_model_checkpoint,
 )
@@ -45,9 +46,14 @@ class GraspDataset(Dataset):
         augment: bool = False,
         aug_cfg: dict | None = None,
         seed: int = 0,
+        config: dict | None = None,
     ) -> None:
         self.samples: list[tuple[torch.Tensor, int]] = []
         rng = random.Random(seed)
+        config = config or {}
+        class_to_index = {
+            label: index for index, label in enumerate(configured_classes(config))
+        }
         for row in rows:
             img = cv2.imread(str(data_root / row["path"]))
             if img is None:
@@ -55,7 +61,10 @@ class GraspDataset(Dataset):
             crop = crop_for_observation(img, roi, row.get("observation_source"))
             if augment:
                 crop = augment_wrist_bgr(crop, aug_cfg, rng=rng)
-            self.samples.append((preprocess(crop, size), CLASS_TO_INDEX[row["label"]]))
+            label = normalize_grasp_label(row["label"], config)
+            if label not in class_to_index:
+                raise ValueError(f"label {label!r} is not in configured classes")
+            self.samples.append((preprocess(crop, size), class_to_index[label]))
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -114,14 +123,22 @@ def main() -> None:
     size = int(cfg["input_size"])
     aug_cfg = cfg.get("augmentation") or {}
     train_ds = GraspDataset(
-        train_rows, args.data, roi, size, augment=True, aug_cfg=aug_cfg, seed=42
+        train_rows,
+        args.data,
+        roi,
+        size,
+        augment=True,
+        aug_cfg=aug_cfg,
+        seed=42,
+        config=cfg,
     )
-    val_ds = GraspDataset(val_rows, args.data, roi, size, augment=False)
+    val_ds = GraspDataset(val_rows, args.data, roi, size, augment=False, config=cfg)
     batch = int(cfg.get("training", {}).get("batch_size", 32))
     train_loader = DataLoader(train_ds, batch_size=batch, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=batch)
 
-    model = build_mobilenet_v3(len(GRASP_CLASSES))
+    classes = configured_classes(cfg)
+    model = build_mobilenet_v3(len(classes))
     if args.fast:
         for p in model.features.parameters():
             p.requires_grad = False
@@ -196,6 +213,9 @@ def main() -> None:
             "best_epoch": best_epoch,
             "n_val": len(val_rows),
             "n_test_held_out": len(test_rows),
+            "classes": classes,
+            "label_mode": cfg.get("label_mode", "detailed"),
+            "config": str(args.config),
         },
     )
     print(f"Saved {out_path} (best val_acc={best_acc:.3f} at epoch {best_epoch})")

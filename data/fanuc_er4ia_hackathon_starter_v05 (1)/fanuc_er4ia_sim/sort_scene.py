@@ -235,6 +235,12 @@ def main():
         default=None,
         help="Run only the first N planned picks (quick simulator validation)",
     )
+    ap.add_argument(
+        "--pick-index",
+        type=int,
+        default=None,
+        help="Run only one zero-based planned pick (targeted data collection)",
+    )
     a = ap.parse_args()
     if a.fps != 30:
         ap.error("Use 30 fps: two 1/60 s physics steps per video frame")
@@ -512,7 +518,12 @@ def main():
             side.initialize()
         side_out = run / "side_frames"
         side_out.mkdir(exist_ok=True)
-        picks_to_run = plan["picks"][: a.max_picks] if a.max_picks else plan["picks"]
+        if a.pick_index is not None:
+            if a.pick_index < 0 or a.pick_index >= len(plan["picks"]):
+                raise ValueError(f"--pick-index must be between 0 and {len(plan['picks']) - 1}")
+            picks_to_run = [plan["picks"][a.pick_index]]
+        else:
+            picks_to_run = plan["picks"][: a.max_picks] if a.max_picks else plan["picks"]
         for pick in picks_to_run:
             # Select equivalent jaw-direction signs once for the whole grasp,
             # so approach/descend and carry/lower cannot differ by 180 degrees.
@@ -537,10 +548,11 @@ def main():
                 if table_rgba is None:
                     raise RuntimeError("Table camera returned no before-grasp image")
                 collection_before_bgr = rgba_to_bgr(table_rgba)
+                observation_xy = pick.get("observation_xy", pick["xy"])
                 crop_uv = table_observation_model.project(
                     [
-                        float(pick["xy"][0]),
-                        float(pick["xy"][1]),
+                        float(observation_xy[0]),
+                        float(observation_xy[1]),
                         C.TABLE_TOP_Z + C.SURFACE_DZ + C.CUBE_EDGE / 2,
                     ]
                 )
