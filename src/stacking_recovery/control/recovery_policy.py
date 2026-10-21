@@ -36,6 +36,16 @@ class ManipulationContext:
     grasp_attempt_index: int = 0
     placement_attempt_index: int = 0
 
+def choose_action(ok, confidence, reason, attempt, max_retries) -> RecoveryDecision:
+    if ok and confidence >= CONFIDENCE_MIN:
+        return RecoveryDecision.PROCEED
+    if attempt >= max_retries:
+        return RecoveryDecision.SAFE_STOP
+    if ok and confidence < CONFIDENCE_MIN:
+        return RecoveryDecision.RETRY
+    if reason is FailureReason.OCCLUSION:
+        return RecoveryDecision.REACQUIRE
+    return RecoveryDecision.REGRASP
 
 class RecoveryPolicy:
     MAX_GRASP_RETRIES = 2
@@ -51,20 +61,16 @@ class RecoveryPolicy:
         self._grasp_check = grasp_check_fn
         self._place_check = place_check_fn
 
-    def after_grasp_close(
-        self,
-        ctx: ManipulationContext,
-        wrist_image_bgr: np.ndarray,
-    ) -> tuple[RecoveryDecision, GraspCheckResult]:
+    def after_grasp_close(self, ctx, wrist_image_bgr):
         result = self._grasp_check(wrist_image_bgr)
-        self._log_grasp(ctx, result, outcome="success" if result.seated else "retry")
-        if result.seated and result.confidence >= CONFIDENCE_MIN:
-            return RecoveryDecision.PROCEED, result
-        if ctx.grasp_attempt_index >= self.MAX_GRASP_RETRIES:
-            self._log_stop(ctx, result.reason.value)
-            return RecoveryDecision.SAFE_STOP, result
-        self._log_action(ctx, "regrasp", result.reason.value, "retry")
-        return RecoveryDecision.REGRASP, result
+        decision = choose_action(
+            ok=result.seated,
+            confidence=result.confidence,
+            reason=result.reason,
+            attempt=ctx.grasp_attempt_index,
+            max_retries=self.MAX_GRASP_RETRIES,
+        )
+        return decision, result
 
     def after_place(
         self,
@@ -73,13 +79,20 @@ class RecoveryPolicy:
     ) -> tuple[RecoveryDecision, PlaceCheckResult]:
         result = self._place_check(verify_image_bgr, ctx.stack_level)
         self._log_place(ctx, result)
-        if result.placed and result.confidence >= CONFIDENCE_MIN:
-            return RecoveryDecision.PROCEED, result
-        if ctx.placement_attempt_index >= self.MAX_PLACEMENT_RETRIES:
+
+        decision = choose_action(
+            ok=result.placed,
+            confidence=result.confidence,
+            reason=result.reason,
+            attempt=ctx.placement_attempt_index,
+            max_retries=self.MAX_PLACEMENT_RETRIES,
+        )
+        if decision is RecoveryDecision.SAFE_STOP:
             self._log_stop(ctx, result.reason.value)
-            return RecoveryDecision.SAFE_STOP, result
-        self._log_action(ctx, "regrasp", result.reason.value, "retry")
-        return RecoveryDecision.REGRASP, result
+        elif decision is not RecoveryDecision.PROCEED:
+            self._log_action(ctx, decision.value, result.reason.value, "retry")
+        return decision, result
+
 
     def _log_grasp(
         self, ctx: ManipulationContext, result: GraspCheckResult, outcome: str
