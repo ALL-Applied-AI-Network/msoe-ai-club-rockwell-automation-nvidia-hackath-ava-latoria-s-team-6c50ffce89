@@ -32,28 +32,35 @@ and evaluate recovery logic before anyone tries it on the real robot.
    stopped; do not create another GPU environment.
 3. Open the environment's **Access** tab, then open its Jupyter link. This is the
    Isaac container where the twin runs.
-4. In Jupyter, open **File > New > Terminal**. Check for the repo:
+4. In Jupyter, open **File > New > Terminal**. The actual repository name is
+   `msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89`.
+   Check whether it is already there:
 
    ```bash
-   cd /workspace/team-repo
+   cd /workspace/msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89
    git status
    ```
+
+   Our first Brev setup used `/workspace/team-repo` as a short local folder name.
+   If that folder already exists, it is the same repository and is fine to use.
 
 5. If that folder does not exist, clone the shared repo into the expected place:
 
    ```bash
    cd /workspace
-   git clone https://github.com/ALL-Applied-AI-Network/msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89.git team-repo
-   cd team-repo
+   git clone https://github.com/ALL-Applied-AI-Network/msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89.git
+   cd msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89
    git switch main
    ```
 
    GitHub may ask you to sign in because the repository is private. After the
-   first clone, teammates normally only need `git pull` from `/workspace/team-repo`.
+   first clone, teammates normally only need `git pull` from that folder.
 
-The source code is in `/workspace/team-repo`. The generated USD scene and live
-stream log are in `/workspace/team-data`. They are intentionally outside Git so
-large generated files do not get committed.
+The source code is in the repository folder above (or the older
+`/workspace/team-repo` shortcut). The helper scripts detect whichever folder
+they are running from. The generated USD scene and live stream log are in
+`/workspace/team-data`; they are intentionally outside Git so large generated
+files do not get committed.
 
 ## Open the twin and watch the arm
 
@@ -62,7 +69,7 @@ large generated files do not get committed.
 3. Run:
 
    ```bash
-   cd /workspace/team-repo
+   cd /workspace/msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89
    git pull
    bash scripts/brev/start_fanuc_viewer.sh
    ```
@@ -100,7 +107,7 @@ asset. Do not run the build while the viewer is running.
 Run this once in the same Jupyter terminal to create the shared data settings:
 
 ```bash
-cd /workspace/team-repo
+cd /workspace/msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89
 bash scripts/brev/bootstrap_data_workspace.sh
 source /workspace/team-data.env
 ```

@@ -3,7 +3,9 @@ set -euo pipefail
 
 # Run this from the Brev Jupyter terminal. It creates the shared USD stage used
 # by the browser viewer without changing any source files.
-REPO_DIR="${TEAM_REPO_DIR:-/workspace/team-repo}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+REPO_DIR="${TEAM_REPO_DIR:-${DEFAULT_REPO_DIR}}"
 SIM_DIR="${REPO_DIR}/data/fanuc_er4ia_hackathon_starter_v05 (1)/fanuc_er4ia_sim"
 DATA_DIR="${TEAM_DATA_DIR:-/workspace/team-data}"
 STAGE="${DATA_DIR}/fanuc_cell.usd"
