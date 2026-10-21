@@ -2,8 +2,14 @@
 set -euo pipefail
 
 # Persistent Brev storage survives an instance stop. Teammates on this instance
-# can source the generated file and use the exact same dataset location.
-BREV_WORKSPACE="${BREV_WORKSPACE:-/home/ubuntu/workspace}"
+# can source the generated file and use the exact same dataset location. The
+# Isaac/Jupyter container uses /workspace; the Brev host uses /home/ubuntu/workspace.
+if [[ -d /isaac-sim && -d /workspace ]]; then
+  DEFAULT_BREV_WORKSPACE=/workspace
+else
+  DEFAULT_BREV_WORKSPACE=/home/ubuntu/workspace
+fi
+BREV_WORKSPACE="${BREV_WORKSPACE:-${DEFAULT_BREV_WORKSPACE}}"
 TEAM_REPO_DIR="${TEAM_REPO_DIR:-${BREV_WORKSPACE}/team-repo}"
 GRASP_DATA_ROOT="${GRASP_DATA_ROOT:-${BREV_WORKSPACE}/team-data/grasp_quality}"
 ENV_FILE="${BREV_WORKSPACE}/team-data.env"

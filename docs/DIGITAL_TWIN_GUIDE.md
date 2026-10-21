@@ -16,12 +16,44 @@ and evaluate recovery logic before anyone tries it on the real robot.
 
 ## Before you start
 
-- Join the team Brev organization as a member.
+- Join our Brev organization with the [team invite link](https://brev.nvidia.com/invite?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbnZpcm9ubWVudElkIjoiIiwiZXhwaXJhdGlvbiI6MTc5MzA0MTk4NCwib3JnSWQiOiJvcmctM0thMGx4dTZtWVJubVBNc0V4bzRORUV5TmxLIiwib3JnYW5pemF0aW9uQWNjZXNzTGV2ZWwiOiJPcmdhbml6YXRpb25NZW1iZXIiLCJ1c2VySWQiOiJ1c2VyLTNLdlRaNW12MGVkQjhqbUpzOTRoWE1kVk50QyJ9.XVhA976QowyKncx64Qni_7WeadPOEoE0NNuyQfeAk3w&orgID=org-3Ka0lxu6mYRnmPMsExo4NEEyNlK).
+  This link grants team access, so keep it in team spaces. If it expires, ask the
+  team owner for a new one.
 - Use the shared environment instead of making another paid GPU instance.
 - Only one person should use the Isaac browser viewer at a time.
 - Ask in the team chat before rebuilding the scene or collecting a large batch.
 - Work on a branch and do not commit generated images, videos, model weights, or
   the generated `fanuc_cell.usd` file.
+
+## Find Brev and get the repo into Isaac
+
+1. Sign in at [Brev](https://brev.nvidia.com/) and select our team organization.
+2. Open **Environments** and choose **fanuc-digital-twin-v5**. Start it if it is
+   stopped; do not create another GPU environment.
+3. Open the environment's **Access** tab, then open its Jupyter link. This is the
+   Isaac container where the twin runs.
+4. In Jupyter, open **File > New > Terminal**. Check for the repo:
+
+   ```bash
+   cd /workspace/team-repo
+   git status
+   ```
+
+5. If that folder does not exist, clone the shared repo into the expected place:
+
+   ```bash
+   cd /workspace
+   git clone https://github.com/ALL-Applied-AI-Network/msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89.git team-repo
+   cd team-repo
+   git switch main
+   ```
+
+   GitHub may ask you to sign in because the repository is private. After the
+   first clone, teammates normally only need `git pull` from `/workspace/team-repo`.
+
+The source code is in `/workspace/team-repo`. The generated USD scene and live
+stream log are in `/workspace/team-data`. They are intentionally outside Git so
+large generated files do not get committed.
 
 ## Open the twin and watch the arm
 
@@ -41,9 +73,12 @@ and evaluate recovery logic before anyone tries it on the real robot.
    tail -f /workspace/team-data/fanuc-stream.log
    ```
 
-5. When the log says `safe looping demonstration started`, open the Isaac
-   viewer link from the Brev environment's Access page. Keep only one viewer tab
-   open. The arm should slowly move through safe poses and operate its gripper.
+5. When the log says `safe looping demonstration started`, return to the Brev
+   environment's **Access** page and open the Isaac viewer. The current viewer is
+   [isaac-ya9khmx83.gobrev.dev/viewer](https://isaac-ya9khmx83.gobrev.dev/viewer/),
+   but use the Access page if Brev ever changes the link. Keep only one viewer
+   tab open. The arm should slowly move through safe poses and operate its
+   gripper, just like the working demonstration.
 
 To stop only the viewer:
 
@@ -62,19 +97,19 @@ asset. Do not run the build while the viewer is running.
 
 ## Where shared data goes
 
-Run this once in the Brev host terminal to create the shared data settings:
+Run this once in the same Jupyter terminal to create the shared data settings:
 
 ```bash
-cd /home/ubuntu/workspace/team-repo
+cd /workspace/team-repo
 bash scripts/brev/bootstrap_data_workspace.sh
-source /home/ubuntu/workspace/team-data.env
+source /workspace/team-data.env
 ```
 
 The important locations are:
 
 - `/workspace/team-data/fanuc_cell.usd` - generated workcell used by Isaac.
 - `/workspace/team-data/fanuc-stream.log` - viewer and motion log.
-- `/home/ubuntu/workspace/team-data/grasp_quality` - shared wrist images and labels.
+- `/workspace/team-data/grasp_quality` - shared wrist images and labels.
 - `results/runs/<run-name>` - one run's plan, frames, events, and report.
 
 The workspace disk survives a normal Brev stop. Deleting the environment can
