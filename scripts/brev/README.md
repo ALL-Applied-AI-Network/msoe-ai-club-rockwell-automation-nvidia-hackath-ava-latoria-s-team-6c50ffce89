@@ -42,6 +42,21 @@ the collection itself keeps running.
 bash scripts/brev/collect_table_dataset.sh watch
 ```
 
+If an initial collection completes but the train/test labels are one-sided,
+fill the missing coverage without replacing the existing dataset:
+
+```bash
+bash scripts/brev/collect_table_dataset.sh balance
+bash scripts/brev/collect_table_dataset.sh watch
+```
+
+After the log says `BALANCE COLLECTION COMPLETE`, train and evaluate the
+binary pickup verifier:
+
+```bash
+bash scripts/brev/train_table_pickup_model.sh
+```
+
 The last log line says `COLLECTION COMPLETE` when it is done. Then stop the
 environment from the Brev dashboard so billing stops. If you need to cancel the
 collection early, use:

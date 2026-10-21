@@ -47,6 +47,41 @@ worker() {
   echo "Stop the Brev environment now so it does not keep using credits."
 }
 
+balance_worker() {
+  local dataset="$1"
+  local sim="${REPO_DIR}/data/fanuc_er4ia_hackathon_starter_v05 (1)/fanuc_er4ia_sim/sort_scene.py"
+  local shifted="${REPO_DIR}/configs/trials/pick_xy_shift_severe_open_loop_seed2.json"
+  local nominal="${REPO_DIR}/configs/trials/nominal_open_loop_seed5.json"
+
+  # A failed pickup ends a stack attempt, so launch each planned cube as its
+  # own trial. This produces useful train failures instead of stopping after one.
+  for pick_index in 0 1 2 3 4 5; do
+    echo "[$(date -Is)] collecting train failure for pick ${pick_index}"
+    "${ISAAC_DIR}/python.sh" "${sim}" \
+      --run "${RUN_DIR}" \
+      --collect-dataset "${dataset}" \
+      --trial-config "${shifted}" \
+      --pick-index "${pick_index}" \
+      --out "${dataset}/run-shift-train-${pick_index}"
+  done
+
+  # The original dataset had no successful test examples. A nominal run fills
+  # that gap while leaving the held-out test split untouched by training.
+  echo "[$(date -Is)] collecting nominal test successes"
+  "${ISAAC_DIR}/python.sh" "${sim}" \
+    --run "${RUN_DIR}" \
+    --collect-dataset "${dataset}" \
+    --trial-config "${nominal}" \
+    --out "${dataset}/run-nominal-test" \
+    --max-picks 6
+
+  echo "[$(date -Is)] validating balanced dataset"
+  PYTHONPATH="${REPO_DIR}/src" "${ISAAC_DIR}/python.sh" \
+    "${REPO_DIR}/scripts/validate_grasp_dataset.py" --data "${dataset}"
+  echo "[$(date -Is)] BALANCE COLLECTION COMPLETE: ${dataset}"
+  echo "Next: bash scripts/brev/train_table_pickup_model.sh"
+}
+
 command="${1:-help}"
 case "${command}" in
   start)
@@ -77,6 +112,25 @@ case "${command}" in
     echo "Watch it: bash scripts/brev/collect_table_dataset.sh watch"
     echo "When complete, stop the Brev environment from the Brev dashboard."
     ;;
+  balance)
+    if running; then
+      echo "A collector is already running with PID $(cat "${PID_FILE}")."
+      exit 1
+    fi
+    if pgrep -x kit >/dev/null 2>&1; then
+      echo "Isaac Sim is already running. Stop the viewer before collecting."
+      echo "Run: bash scripts/brev/stop_fanuc_viewer.sh"
+      exit 1
+    fi
+    [[ -f "${LATEST_FILE}" ]] || { echo "No prior dataset is recorded."; exit 1; }
+    dataset="$(cat "${LATEST_FILE}")"
+    [[ -f "${dataset}/manifest.json" ]] || { echo "Dataset not found: ${dataset}"; exit 1; }
+    nohup bash "$0" _balance_worker "${dataset}" >"${LOG_FILE}" 2>&1 &
+    printf '%s\n' "$!" >"${PID_FILE}"
+    echo "Balance collection started in the background (PID $!)."
+    echo "Dataset: ${dataset}"
+    echo "Watch it: bash scripts/brev/collect_table_dataset.sh watch"
+    ;;
   status)
     if running; then
       echo "RUNNING (PID $(cat "${PID_FILE}"))"
@@ -102,7 +156,10 @@ case "${command}" in
   _worker)
     worker "$2" "$3"
     ;;
+  _balance_worker)
+    balance_worker "$2"
+    ;;
   *)
-    echo "Usage: $0 {start [quick|full]|status|watch|stop}"
+    echo "Usage: $0 {start [quick|full]|balance|status|watch|stop}"
     ;;
 esac
