@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Isaac wrist collection sequentially across prepared run directories."""
+"""Run Isaac table-camera collection sequentially across prepared run directories."""
 
 from __future__ import annotations
 
@@ -40,7 +40,6 @@ def main() -> int:
         type=Path,
         default=Path(os.environ.get("ISAAC", "/isaac-sim")),
     )
-    parser.add_argument("--physics-only", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
     args = parser.parse_args()
@@ -60,8 +59,6 @@ def main() -> int:
         cmd = [*command_prefix, "--run", str(run), "--out", str(out), "--isaac", str(args.isaac)]
         if args.trial:
             cmd.extend(["--trial", str(args.trial)])
-        if args.physics_only:
-            cmd.append("--physics-only")
         print(f"[{index}/{len(runs)}] {' '.join(cmd)}", flush=True)
         if args.dry_run:
             continue
