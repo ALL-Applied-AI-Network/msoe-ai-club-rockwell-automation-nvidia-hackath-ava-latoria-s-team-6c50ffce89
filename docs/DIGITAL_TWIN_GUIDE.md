@@ -16,72 +16,74 @@ and evaluate recovery logic before anyone tries it on the real robot.
 
 ## Before you start
 
-- Join our Brev organization with the [team invite link](https://brev.nvidia.com/invite?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbnZpcm9ubWVudElkIjoiIiwiZXhwaXJhdGlvbiI6MTc5MzA0MTk4NCwib3JnSWQiOiJvcmctM0thMGx4dTZtWVJubVBNc0V4bzRORUV5TmxLIiwib3JnYW5pemF0aW9uQWNjZXNzTGV2ZWwiOiJPcmdhbml6YXRpb25NZW1iZXIiLCJ1c2VySWQiOiJ1c2VyLTNLdlRaNW12MGVkQjhqbUpzOTRoWE1kVk50QyJ9.XVhA976QowyKncx64Qni_7WeadPOEoE0NNuyQfeAk3w&orgID=org-3Ka0lxu6mYRnmPMsExo4NEEyNlK).
-  This link grants team access, so keep it in team spaces. If it expires, ask the
-  team owner for a new one.
 - Use the shared environment instead of making another paid GPU instance.
 - Only one person should use the Isaac browser viewer at a time.
 - Ask in the team chat before rebuilding the scene or collecting a large batch.
 - Work on a branch and do not commit generated images, videos, model weights, or
   the generated `fanuc_cell.usd` file.
 
-## Find Brev and get the repo into Isaac
+## Get into the shared Brev environment
 
-1. Sign in at [Brev](https://brev.nvidia.com/) and select our team organization.
-2. Open **Environments** and choose **fanuc-digital-twin-v5**. Start it if it is
-   stopped; do not create another GPU environment.
-3. Open the environment's **Access** tab, then open its Jupyter link. This is the
-   Isaac container where the twin runs.
-4. In Jupyter, open **File > New > Terminal**. The actual repository name is
-   `msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89`.
-   Check whether it is already there:
+1. Open the [team invite link](https://brev.nvidia.com/invite?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbnZpcm9ubWVudElkIjoiIiwiZXhwaXJhdGlvbiI6MTc5MzA0MTk4NCwib3JnSWQiOiJvcmctM0thMGx4dTZtWVJubVBNc0V4bzRORUV5TmxLIiwib3JnYW5pemF0aW9uQWNjZXNzTGV2ZWwiOiJPcmdhbml6YXRpb25NZW1iZXIiLCJ1c2VySWQiOiJ1c2VyLTNLdlRaNW12MGVkQjhqbUpzOTRoWE1kVk50QyJ9.XVhA976QowyKncx64Qni_7WeadPOEoE0NNuyQfeAk3w&orgID=org-3Ka0lxu6mYRnmPMsExo4NEEyNlK)
+   and sign in or create your Brev account.
+2. In Brev, open **Environments**.
+3. Click **fanuc-digital-twin-v5**. This is the shared environment; do not make
+   another GPU environment.
+4. If it says **Stopped**, click **Start** and wait until it is running.
+5. Click the **Access** tab.
+6. Open the Jupyter link. A JupyterLab page will open in a new tab.
+7. In JupyterLab's top menu, click **File**, then **New**, then **Terminal**. A
+   terminal tab with a command prompt will open. Paste commands there one line
+   at a time and press **Enter** after each one.
 
-   ```bash
-   cd /workspace/msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89
-   git status
-   ```
+## Find the repo inside Brev
 
-   Our first Brev setup used `/workspace/team-repo` as a short local folder name.
-   If that folder already exists, it is the same repository and is fine to use.
+The actual GitHub repository is named
+`msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89`.
+In our current shared Brev environment it is stored in the shorter local folder
+`/workspace/team-repo`. Use this command to open it:
 
-5. If that folder does not exist, clone the shared repo into the expected place:
+```bash
+cd /workspace/team-repo
+git status
+```
 
-   ```bash
-   cd /workspace
-   git clone https://github.com/ALL-Applied-AI-Network/msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89.git
-   cd msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89
-   git switch main
-   ```
+If both commands work, the repo is already there. If the first command says the
+folder does not exist, install the repo in the same Brev location with:
 
-   GitHub may ask you to sign in because the repository is private. After the
-   first clone, teammates normally only need `git pull` from that folder.
+```bash
+cd /workspace
+git clone https://github.com/ALL-Applied-AI-Network/msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89.git team-repo
+cd /workspace/team-repo
+git switch main
+```
 
-The source code is in the repository folder above (or the older
-`/workspace/team-repo` shortcut). The helper scripts detect whichever folder
-they are running from. The generated USD scene and live stream log are in
-`/workspace/team-data`; they are intentionally outside Git so large generated
-files do not get committed.
+GitHub may ask you to sign in because the repository is private. The source code
+will be in `/workspace/team-repo`. The generated scene, logs, and shared data are
+kept separately in `/workspace/team-data` so they do not get committed to Git.
 
 ## Open the twin and watch the arm
 
-1. Start the shared Brev environment if it is stopped.
-2. Open its Jupyter link and launch a terminal.
-3. Run:
+1. Follow the steps above to open a Jupyter terminal.
+2. Paste and run these commands one line at a time:
 
    ```bash
-   cd /workspace/msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89
+   cd /workspace/team-repo
+   git switch main
    git pull
    bash scripts/brev/start_fanuc_viewer.sh
    ```
 
-4. Wait about a minute, then check:
+3. Wait about a minute. To watch the startup messages, run:
 
    ```bash
    tail -f /workspace/team-data/fanuc-stream.log
    ```
 
-5. When the log says `safe looping demonstration started`, return to the Brev
-   environment's **Access** page and open the Isaac viewer. The current viewer is
+   When it says `safe looping demonstration started`, press **Ctrl+C**. This only
+   stops watching the messages; it does not stop Isaac Sim.
+4. Return to the Brev environment's **Access** page and open the Isaac viewer.
+   The current viewer is
    [isaac-ya9khmx83.gobrev.dev/viewer](https://isaac-ya9khmx83.gobrev.dev/viewer/),
    but use the Access page if Brev ever changes the link. Keep only one viewer
    tab open. The arm should slowly move through safe poses and operate its
@@ -107,7 +109,7 @@ asset. Do not run the build while the viewer is running.
 Run this once in the same Jupyter terminal to create the shared data settings:
 
 ```bash
-cd /workspace/msoe-ai-club-rockwell-automation-nvidia-hackath-ava-latoria-s-team-6c50ffce89
+cd /workspace/team-repo
 bash scripts/brev/bootstrap_data_workspace.sh
 source /workspace/team-data.env
 ```
