@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -36,16 +37,43 @@ class ManipulationContext:
     grasp_attempt_index: int = 0
     placement_attempt_index: int = 0
 
-def choose_action(ok, confidence, reason, attempt, max_retries) -> RecoveryDecision:
-    if ok and confidence >= CONFIDENCE_MIN:
+def choose_action(
+    ok: bool,
+    confidence: float,
+    reason: FailureReason,
+    attempt: int,
+    max_retries: int ) -> RecoveryDecision:
+    if (
+            not isinstance(ok, (bool, np.bool_))
+            or not isinstance(confidence, (int, float, np.floating))
+            or not math.isfinite(confidence)
+            or not 0 <= confidence <= 1
+            or not isinstance(reason, FailureReason)
+            or not isinstance(attempt, int)
+            or not isinstance(max_retries, int)
+            or attempt < 0
+            or max_retries < 0
+    ):
+        return RecoveryDecision.SAFE_STOP
+    if ok and reason == FailureReason.OK and confidence >= CONFIDENCE_MIN:
         return RecoveryDecision.PROCEED
+    if reason in (FailureReason.UNKNOWN, FailureReason.STUB):
+        return RecoveryDecision.SAFE_STOP
     if attempt >= max_retries:
         return RecoveryDecision.SAFE_STOP
-    if ok and confidence < CONFIDENCE_MIN:
+    if confidence < CONFIDENCE_MIN or reason == FailureReason.LOW_CONFIDENCE:
         return RecoveryDecision.RETRY
-    if reason is FailureReason.OCCLUSION:
+    if reason == FailureReason.OCCLUSION:
         return RecoveryDecision.REACQUIRE
-    return RecoveryDecision.REGRASP
+    if reason in (
+        FailureReason.EMPTY_GRASP,
+        FailureReason.MISALIGNED_CUBE,
+        FailureReason.TILTED_OBJECT):
+        return RecoveryDecision.REGRASP
+    if reason == FailureReason.PLACEMENT_FAILURE:
+        return RecoveryDecision.RETRY
+    return RecoveryDecision.SAFE_STOP
+
 
 class RecoveryPolicy:
     MAX_GRASP_RETRIES = 2
