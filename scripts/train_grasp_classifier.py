@@ -48,8 +48,11 @@ class GraspDataset(Dataset):
         seed: int = 0,
         config: dict | None = None,
     ) -> None:
-        self.samples: list[tuple[torch.Tensor, int]] = []
-        rng = random.Random(seed)
+        self.samples: list[tuple[object, int]] = []
+        self.augment = augment
+        self.aug_cfg = aug_cfg
+        self.rng = random.Random(seed)
+        self.size = size
         config = config or {}
         class_to_index = {
             label: index for index, label in enumerate(configured_classes(config))
@@ -59,18 +62,19 @@ class GraspDataset(Dataset):
             if img is None:
                 raise FileNotFoundError(row["path"])
             crop = crop_for_observation(img, roi, row.get("observation_source"))
-            if augment:
-                crop = augment_wrist_bgr(crop, aug_cfg, rng=rng)
             label = normalize_grasp_label(row["label"], config)
             if label not in class_to_index:
                 raise ValueError(f"label {label!r} is not in configured classes")
-            self.samples.append((preprocess(crop, size), class_to_index[label]))
+            self.samples.append((crop, class_to_index[label]))
 
     def __len__(self) -> int:
         return len(self.samples)
 
     def __getitem__(self, idx: int):
-        return self.samples[idx]
+        crop, label = self.samples[idx]
+        if self.augment:
+            crop = augment_wrist_bgr(crop, self.aug_cfg, rng=self.rng)
+        return preprocess(crop, self.size), label
 
 
 def main() -> None:

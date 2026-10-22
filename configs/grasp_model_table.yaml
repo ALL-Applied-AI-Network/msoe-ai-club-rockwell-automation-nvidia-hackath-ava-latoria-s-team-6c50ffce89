@@ -30,12 +30,18 @@ training:
 augmentation:
   brightness_delta: 0.12
   contrast_delta: 0.10
+  gamma_min: 0.88
+  gamma_max: 1.12
+  saturation_delta: 0.10
+  warmth_delta: 0.06
   noise_std: 6
   blur_prob: 0.15
   blur_ksize: 3
   jpeg_prob: 0.15
   jpeg_quality_min: 70
   jpeg_quality_max: 95
+  shadow_prob: 0.20
+  shadow_strength_max: 0.15
 
 feedback:
   enabled: false
