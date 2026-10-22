@@ -89,7 +89,8 @@ class RecoveryPolicy:
         self._grasp_check = grasp_check_fn
         self._place_check = place_check_fn
 
-    def after_grasp_close(self, ctx, wrist_image_bgr):
+    def after_grasp_close(self, ctx:ManipulationContext, wrist_image_bgr:np.ndarray,
+                          ) -> tuple[RecoveryDecision, GraspCheckResult]:
         result = self._grasp_check(wrist_image_bgr)
         decision = choose_action(
             ok=result.seated,
@@ -98,15 +99,18 @@ class RecoveryPolicy:
             attempt=ctx.grasp_attempt_index,
             max_retries=self.MAX_GRASP_RETRIES,
         )
+        outcome = ("success" if decision is RecoveryDecision.PROCEED else "retry")
+        self._log_grasp(ctx, result, outcome)
+
+        if decision is RecoveryDecision.SAFE_STOP:
+            self._log_stop(ctx, result.reason.value)
+        elif decision is not RecoveryDecision.PROCEED:
+            self._log_action(ctx, decision.value, result.reason.value, outcome)
         return decision, result
 
-    def after_place(
-        self,
-        ctx: ManipulationContext,
-        verify_image_bgr: np.ndarray,
-    ) -> tuple[RecoveryDecision, PlaceCheckResult]:
+    def after_place(self, ctx: ManipulationContext, verify_image_bgr: np.ndarray,
+                    ) -> tuple[RecoveryDecision, PlaceCheckResult]:
         result = self._place_check(verify_image_bgr, ctx.stack_level)
-        self._log_place(ctx, result)
 
         decision = choose_action(
             ok=result.placed,
@@ -115,10 +119,19 @@ class RecoveryPolicy:
             attempt=ctx.placement_attempt_index,
             max_retries=self.MAX_PLACEMENT_RETRIES,
         )
+        if decision is RecoveryDecision.PROCEED:
+            outcome = "success"
+        elif decision is RecoveryDecision.SAFE_STOP:
+            outcome = "failed"
+        else:
+            outcome = "retry"
+
+        self._log_place(ctx, result, outcome)
+
         if decision is RecoveryDecision.SAFE_STOP:
             self._log_stop(ctx, result.reason.value)
         elif decision is not RecoveryDecision.PROCEED:
-            self._log_action(ctx, decision.value, result.reason.value, "retry")
+            self._log_action(ctx, decision.value, result.reason.value, outcome)
         return decision, result
 
 
@@ -135,12 +148,12 @@ class RecoveryPolicy:
             yaw_error_deg=result.yaw_error_deg,
         )
 
-    def _log_place(self, ctx: ManipulationContext, result: PlaceCheckResult) -> None:
+    def _log_place(self, ctx: ManipulationContext, result: PlaceCheckResult, outcome: str,) -> None:
         self._log_action(
             ctx,
             "place_check",
             result.reason.value,
-            "success" if result.placed else "retry",
+            outcome,
             placed=result.placed,
             check_confidence=result.confidence,
         )
