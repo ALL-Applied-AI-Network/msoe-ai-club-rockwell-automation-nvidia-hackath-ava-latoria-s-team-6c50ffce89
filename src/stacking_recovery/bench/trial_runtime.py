@@ -47,6 +47,11 @@ def apply_plan_overrides(plan: dict[str, Any], overrides: dict[str, Any]) -> dic
     plan["trial_condition"] = overrides.get("condition_id")
     plan["trial_seed"] = overrides.get("seed")
     plan["trial_yaw_offset_deg"] = float(overrides.get("yaw_offset_deg", 0) or 0)
+    plan["trial_pick_xy_offset_m"] = list(
+        overrides.get("pick_xy_offset_m") or [0.0, 0.0]
+    )
+    plan["campaign_target"] = overrides.get("campaign_target")
+    plan["campaign_scenario"] = overrides.get("campaign_scenario")
     return plan
 
 

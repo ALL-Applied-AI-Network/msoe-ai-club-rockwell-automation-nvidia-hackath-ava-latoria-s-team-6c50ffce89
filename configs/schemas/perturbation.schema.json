@@ -37,6 +37,11 @@
     },
     "occluding_object": { "type": "string", "enum": ["cap", "vial", "none"] },
     "tilt_deg": { "type": "number" },
+    "campaign_target": {
+      "type": "string",
+      "enum": ["GOOD", "FAILURE"]
+    },
+    "campaign_scenario": { "type": "string" },
     "notes": { "type": "string" }
   },
   "additionalProperties": false

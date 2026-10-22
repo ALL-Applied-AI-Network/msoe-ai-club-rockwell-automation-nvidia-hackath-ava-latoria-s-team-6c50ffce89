@@ -82,6 +82,27 @@ balance_worker() {
   echo "Next: bash scripts/brev/train_table_pickup_model.sh"
 }
 
+campaign_worker() {
+  local dataset="$1"
+  local train_target="$2"
+  local val_target="$3"
+  local test_target="$4"
+  "${ISAAC_DIR}/python.sh" "${REPO_DIR}/scripts/sim/collect_balanced_table_dataset.py" \
+    --repo "${REPO_DIR}" \
+    --run "${RUN_DIR}" \
+    --out "${dataset}" \
+    --isaac "${ISAAC_DIR}" \
+    --target-train "${train_target}" \
+    --target-val "${val_target}" \
+    --target-test "${test_target}"
+
+  echo "[$(date -Is)] validating balanced campaign dataset"
+  PYTHONPATH="${REPO_DIR}/src" "${ISAAC_DIR}/python.sh" \
+    "${REPO_DIR}/scripts/validate_grasp_dataset.py" --data "${dataset}"
+  echo "[$(date -Is)] CAMPAIGN COLLECTION COMPLETE: ${dataset}"
+  echo "Next: bash scripts/brev/train_table_pickup_model.sh"
+}
+
 command="${1:-help}"
 case "${command}" in
   start)
@@ -131,6 +152,34 @@ case "${command}" in
     echo "Dataset: ${dataset}"
     echo "Watch it: bash scripts/brev/collect_table_dataset.sh watch"
     ;;
+  campaign)
+    if running; then
+      echo "A collector is already running with PID $(cat "${PID_FILE}")."
+      exit 1
+    fi
+    if pgrep -x kit >/dev/null 2>&1; then
+      echo "Isaac Sim is already running. Stop the viewer before collecting."
+      echo "Run: bash scripts/brev/stop_fanuc_viewer.sh"
+      exit 1
+    fi
+    mode="${2:-full}"
+    case "${mode}" in
+      quick) train_target=20; val_target=5; test_target=5 ;;
+      full) train_target=100; val_target=25; test_target=25 ;;
+      *) echo "Use: $0 campaign [quick|full]"; exit 2 ;;
+    esac
+    [[ -x "${ISAAC_DIR}/python.sh" ]] || { echo "Isaac Sim not found at ${ISAAC_DIR}"; exit 1; }
+    [[ -f "${RUN_DIR}/sort_plan.json" ]] || { echo "Prepared run not found: ${RUN_DIR}"; exit 1; }
+    mkdir -p "${JOB_DIR}"
+    dataset="${TEAM_DATA_DIR:-/workspace/team-data}/table-campaign-$(date +%Y%m%d-%H%M%S)"
+    printf '%s\n' "${dataset}" >"${LATEST_FILE}"
+    nohup bash "$0" _campaign_worker "${dataset}" "${train_target}" "${val_target}" "${test_target}" >"${LOG_FILE}" 2>&1 &
+    printf '%s\n' "$!" >"${PID_FILE}"
+    echo "Balanced campaign started in the background (PID $!)."
+    echo "Dataset: ${dataset}"
+    echo "Mode ${mode}: $((2 * (train_target + val_target + test_target))) final samples."
+    echo "Watch it: bash scripts/brev/collect_table_dataset.sh watch"
+    ;;
   status)
     if running; then
       echo "RUNNING (PID $(cat "${PID_FILE}"))"
@@ -159,7 +208,10 @@ case "${command}" in
   _balance_worker)
     balance_worker "$2"
     ;;
+  _campaign_worker)
+    campaign_worker "$2" "$3" "$4" "$5"
+    ;;
   *)
-    echo "Usage: $0 {start [quick|full]|balance|status|watch|stop}"
+    echo "Usage: $0 {campaign [quick|full]|start [quick|full]|balance|status|watch|stop}"
     ;;
 esac

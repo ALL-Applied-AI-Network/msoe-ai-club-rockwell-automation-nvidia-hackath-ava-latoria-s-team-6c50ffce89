@@ -14,10 +14,32 @@ The scripts in this folder provide repeatable commands for the shared setup:
 
 ## Easy background collection
 
+For the model-quality collection, use the balanced campaign. It checks the
+labels already saved after every simulated attempt and keeps generating varied
+nominal, shifted, rotated, and empty-grasp conditions until both binary classes
+reach their train, validation, and test quotas:
+
+```bash
+cd /workspace/team-repo-ava-049bfe8
+bash scripts/brev/stop_fanuc_viewer.sh
+bash scripts/brev/collect_table_dataset.sh campaign full
+```
+
+`full` targets 300 final samples: 100 GOOD + 100 failures in train, then 25 +
+25 in validation and test. Use `campaign quick` for a 60-sample smoke test.
+Every attempt uses a fresh seed and cycles cube targets and failure types. The
+actual physics result decides the saved label, so a failure requested by the
+planner is never falsely counted as a failure if the robot succeeds.
+
+Use `status` or `watch` below to monitor it. The job survives closing your
+laptop, but the Brev environment must remain running until it completes.
+
+### Older fixed collection
+
 Open a terminal in the Brev Jupyter page, then run:
 
 ```bash
-cd /workspace/team-repo
+cd /workspace/team-repo-ava-049bfe8
 bash scripts/brev/stop_fanuc_viewer.sh
 bash scripts/brev/collect_table_dataset.sh start quick
 ```
@@ -71,7 +93,7 @@ Use one persistent folder on the Brev instance for Isaac images and labels. Do
 not run multiple collectors at once because they append to one manifest.
 
 ```bash
-cd /home/ubuntu/workspace/team-repo
+cd /workspace/team-repo-ava-049bfe8
 bash scripts/brev/bootstrap_data_workspace.sh
 source /home/ubuntu/workspace/team-data.env
 ```

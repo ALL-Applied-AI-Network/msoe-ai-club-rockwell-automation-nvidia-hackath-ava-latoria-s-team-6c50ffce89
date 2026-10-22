@@ -35,6 +35,8 @@ def trial_to_overrides(trial: dict[str, Any]) -> dict[str, Any]:
         "touching_cube_colours",
         "occluding_object",
         "tilt_deg",
+        "campaign_target",
+        "campaign_scenario",
     ):
         if key in trial:
             overrides[key] = trial[key]

@@ -312,6 +312,11 @@ def main():
             "split": split_for_seed(collection_seed),
             "trial_condition": plan.get("trial_condition") or "nominal",
             "injected_yaw_error_deg": float(plan.get("trial_yaw_offset_deg") or 0),
+            "injected_pick_xy_offset_m": list(
+                plan.get("trial_pick_xy_offset_m") or [0.0, 0.0]
+            ),
+            "campaign_target": plan.get("campaign_target"),
+            "campaign_scenario": plan.get("campaign_scenario"),
             "run_id": run.name,
         }
     else:
