@@ -68,9 +68,24 @@ def crop_for_observation(
     image_bgr: np.ndarray,
     roi: dict[str, float],
     observation_source: Optional[str] = None,
+    table_pair_mode: str = "raw_pair",
 ) -> np.ndarray:
     """Keep prepared table-camera pairs intact; crop legacy wrist frames."""
     if observation_source == "table_before_after":
+        if table_pair_mode == "before_after_delta":
+            _, width = image_bgr.shape[:2]
+            if width >= 2 and width % 2 == 0:
+                before = image_bgr[:, : width // 2]
+                after = image_bgr[:, width // 2 :]
+                if before.shape == after.shape:
+                    before_gray = cv2.cvtColor(before, cv2.COLOR_BGR2GRAY)
+                    after_gray = cv2.cvtColor(after, cv2.COLOR_BGR2GRAY)
+                    delta_gray = cv2.absdiff(before_gray, after_gray)
+                    # preprocess() converts BGR to RGB. Store the channels in
+                    # reverse order so the model receives before, after, delta.
+                    return np.stack(
+                        [delta_gray, after_gray, before_gray], axis=2
+                    )
         return image_bgr
     return crop_roi(image_bgr, roi)
 
@@ -151,7 +166,10 @@ class GraspQualityModel:
             self.load()
         assert self._model is not None and self._device is not None
         roi = crop_for_observation(
-            image_bgr, self.config["roi"], observation_source
+            image_bgr,
+            self.config["roi"],
+            observation_source,
+            str(self.config.get("table_pair_mode", "raw_pair")),
         )
         size = int(self.config.get("input_size", 224))
         x = preprocess(roi, size).unsqueeze(0)

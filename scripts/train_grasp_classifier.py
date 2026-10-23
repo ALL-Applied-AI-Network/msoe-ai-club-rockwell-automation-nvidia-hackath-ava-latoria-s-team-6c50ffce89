@@ -61,7 +61,12 @@ class GraspDataset(Dataset):
             img = cv2.imread(str(data_root / row["path"]))
             if img is None:
                 raise FileNotFoundError(row["path"])
-            crop = crop_for_observation(img, roi, row.get("observation_source"))
+            crop = crop_for_observation(
+                img,
+                roi,
+                row.get("observation_source"),
+                str(config.get("table_pair_mode", "raw_pair")),
+            )
             label = normalize_grasp_label(row["label"], config)
             if label not in class_to_index:
                 raise ValueError(f"label {label!r} is not in configured classes")
@@ -143,6 +148,9 @@ def main() -> None:
 
     classes = configured_classes(cfg)
     model = build_mobilenet_v3(len(classes))
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    print(f"training device: {device}", flush=True)
     if args.fast:
         for p in model.features.parameters():
             p.requires_grad = False
@@ -170,6 +178,8 @@ def main() -> None:
         model.train()
         train_loss = 0.0
         for xb, yb in train_loader:
+            xb = xb.to(device)
+            yb = yb.to(device)
             opt.zero_grad()
             loss = criterion(model(xb), yb)
             loss.backward()
@@ -179,6 +189,8 @@ def main() -> None:
         correct = total = 0
         with torch.no_grad():
             for xb, yb in val_loader:
+                xb = xb.to(device)
+                yb = yb.to(device)
                 pred = model(xb).argmax(dim=1)
                 correct += int((pred == yb).sum())
                 total += len(yb)

@@ -19,12 +19,11 @@ export PYTHONPATH="${REPO_DIR}/src"
 echo "Validating ${DATASET}"
 "${ISAAC_DIR}/python.sh" scripts/validate_grasp_dataset.py --data "${DATASET}"
 
-echo "Training the table-camera pickup verifier"
+echo "Fine-tuning the full table-camera pickup verifier"
 "${ISAAC_DIR}/python.sh" scripts/train_grasp_classifier.py \
   --data "${DATASET}" \
   --config configs/grasp_model_table.yaml \
-  --observation-source table_before_after \
-  --fast
+  --observation-source table_before_after
 
 mkdir -p "${DATASET}/evaluation"
 for split in val test; do

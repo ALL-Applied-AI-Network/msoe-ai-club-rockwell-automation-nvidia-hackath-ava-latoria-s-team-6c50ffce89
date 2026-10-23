@@ -17,6 +17,28 @@ from stacking_recovery.vision.grasp_check_factory import build_guarded_ai_check
 
 
 class TestPredictionToResult(unittest.TestCase):
+    def test_table_pair_mode_exposes_before_after_and_delta(self) -> None:
+        from stacking_recovery.vision.grasp_quality_model import crop_for_observation
+
+        before = np.full((8, 8, 3), 20, dtype=np.uint8)
+        after = before.copy()
+        after[2:6, 2:6] = 80
+        pair = np.concatenate([before, after], axis=1)
+
+        encoded = crop_for_observation(
+            pair,
+            {"y0": 0.0, "y1": 1.0, "x0": 0.0, "x1": 1.0},
+            "table_before_after",
+            "before_after_delta",
+        )
+
+        self.assertEqual(encoded.shape, (8, 8, 3))
+        np.testing.assert_array_equal(encoded[..., 2], 20)
+        np.testing.assert_array_equal(encoded[..., 1], after[..., 0])
+        np.testing.assert_array_equal(
+            encoded[..., 0], np.abs(after[..., 0].astype(int) - 20).astype(np.uint8)
+        )
+
     def test_binary_pickup_labels_fold_failure_causes(self) -> None:
         from stacking_recovery.vision.grasp_quality_model import normalize_grasp_label
 
