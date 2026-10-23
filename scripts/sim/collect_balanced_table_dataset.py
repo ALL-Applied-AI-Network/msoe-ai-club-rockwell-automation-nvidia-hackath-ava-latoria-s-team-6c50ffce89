@@ -40,6 +40,12 @@ def main() -> int:
     parser.add_argument("--target-val", type=int, default=25)
     parser.add_argument("--target-test", type=int, default=25)
     parser.add_argument("--max-attempts", type=int, default=500)
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Reuse one Isaac process for this many fully reset trials",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -49,6 +55,8 @@ def main() -> int:
     targets = CampaignTargets(args.target_train, args.target_val, args.target_test)
     if min(targets.train, targets.val, targets.test) <= 0:
         parser.error("all split targets must be positive")
+    if args.batch_size <= 0:
+        parser.error("--batch-size must be positive")
     if not (run / "sort_plan.json").is_file():
         parser.error(f"prepared run missing sort_plan.json: {run}")
 
@@ -64,6 +72,53 @@ def main() -> int:
         parser.error(f"Isaac Python not found: {isaac_python}")
     if not sort_scene.is_file():
         parser.error(f"sort_scene.py not found: {sort_scene}")
+
+    if args.batch_size > 1:
+        batch_worker = repo / "scripts" / "sim" / "run_table_collection_batch.py"
+        if not batch_worker.is_file():
+            parser.error(f"batch worker not found: {batch_worker}")
+        attempts = 0
+        while attempts < args.max_attempts:
+            rows = load_manifest(out / "manifest.json")
+            if next_collection_attempt(rows, targets) is None:
+                print("BALANCED COLLECTION COMPLETE", flush=True)
+                _print_progress(rows, targets)
+                return 0
+            batch_attempts = min(args.batch_size, args.max_attempts - attempts)
+            command = [
+                str(isaac_python),
+                str(batch_worker),
+                "--repo",
+                str(repo),
+                "--run",
+                str(run),
+                "--out",
+                str(out),
+                "--target-train",
+                str(args.target_train),
+                "--target-val",
+                str(args.target_val),
+                "--target-test",
+                str(args.target_test),
+                "--max-attempts",
+                str(batch_attempts),
+            ]
+            if args.dry_run:
+                print(" ".join(command), flush=True)
+                return 0
+            result = subprocess.run(command, check=False)
+            attempts += batch_attempts
+            if result.returncode not in (0, 3):
+                print(
+                    f"Isaac batch failed with exit code {result.returncode}",
+                    file=sys.stderr,
+                )
+                return result.returncode
+            if result.returncode == 0:
+                return 0
+        print(f"Stopped after max_attempts={args.max_attempts} before quotas were met.")
+        _print_progress(load_manifest(out / "manifest.json"), targets)
+        return 3
 
     out.mkdir(parents=True, exist_ok=True)
     campaign_dir = out / "campaign"

@@ -181,7 +181,7 @@ def wide_up_object_names(run):
     ]
 
 
-def main():
+def main(argv=None, *, simulation_app=None):
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--run",
@@ -241,7 +241,7 @@ def main():
         default=None,
         help="Run only one zero-based planned pick (targeted data collection)",
     )
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     if a.fps != 30:
         ap.error("Use 30 fps: two 1/60 s physics steps per video frame")
     if a.collect_dataset and a.physics_only:
@@ -325,7 +325,8 @@ def main():
     # Resolve paths and validate before Kit changes the working directory.
     from isaacsim import SimulationApp
 
-    app = SimulationApp({"headless": True})
+    owns_app = simulation_app is None
+    app = simulation_app or SimulationApp({"headless": True})
     try:
         import cv2
         import omni.usd
@@ -335,6 +336,14 @@ def main():
         from isaacsim.core.utils.types import ArticulationAction
         from isaacsim.sensors.camera import Camera
         import cell
+
+        if not owns_app:
+            # A batch worker keeps Kit alive but every trial still gets a new
+            # USD stage and a fresh World singleton.  This prevents robot,
+            # object, camera, and physics state from leaking between seeds.
+            World.clear_instance()
+            omni.usd.get_context().new_stage()
+            app.update()
 
         world = World(stage_units_in_meters=1.0, physics_dt=1 / 60, rendering_dt=1 / 30)
         stage = omni.usd.get_context().get_stage()
@@ -984,7 +993,8 @@ def main():
         traceback.print_exc()
         raise
     finally:
-        app.close()
+        if owns_app:
+            app.close()
 
 
 if __name__ == "__main__":
