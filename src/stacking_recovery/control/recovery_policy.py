@@ -52,8 +52,7 @@ def choose_action(
             or not isinstance(attempt, int)
             or not isinstance(max_retries, int)
             or attempt < 0
-            or max_retries < 0
-    ):
+            or max_retries < 0):
         return RecoveryDecision.SAFE_STOP
     if ok and reason == FailureReason.OK and confidence >= CONFIDENCE_MIN:
         return RecoveryDecision.PROCEED
@@ -91,14 +90,25 @@ class RecoveryPolicy:
 
     def after_grasp_close(self, ctx:ManipulationContext, wrist_image_bgr:np.ndarray,
                           ) -> tuple[RecoveryDecision, GraspCheckResult]:
-        result = self._grasp_check(wrist_image_bgr)
+        try:
+            result = self._grasp_check(wrist_image_bgr)
+
+            if not isinstance(result, GraspCheckResult):
+                raise ValueError("Invalid grasp check result")
+        except Exception:
+            result = GraspCheckResult(
+                seated=False,
+                yaw_error_deg=0.0,
+                confidence=0.0,
+                reason=FailureReason.UNKNOWN,)
+
         decision = choose_action(
             ok=result.seated,
             confidence=result.confidence,
             reason=result.reason,
             attempt=ctx.grasp_attempt_index,
-            max_retries=self.MAX_GRASP_RETRIES,
-        )
+            max_retries=self.MAX_GRASP_RETRIES,)
+
         outcome = ("success" if decision is RecoveryDecision.PROCEED else "retry")
         self._log_grasp(ctx, result, outcome)
 
@@ -110,15 +120,24 @@ class RecoveryPolicy:
 
     def after_place(self, ctx: ManipulationContext, verify_image_bgr: np.ndarray,
                     ) -> tuple[RecoveryDecision, PlaceCheckResult]:
-        result = self._place_check(verify_image_bgr, ctx.stack_level)
+        try:
+            result = self._place_check(verify_image_bgr, ctx.stack_level)
+
+            if not isinstance(result, PlaceCheckResult):
+                raise ValueError("Invalid placement check result")
+        except Exception:
+            result = PlaceCheckResult(
+                placed=False,
+                confidence=0.0,
+                reason=FailureReason.UNKNOWN,)
 
         decision = choose_action(
             ok=result.placed,
             confidence=result.confidence,
             reason=result.reason,
             attempt=ctx.placement_attempt_index,
-            max_retries=self.MAX_PLACEMENT_RETRIES,
-        )
+            max_retries=self.MAX_PLACEMENT_RETRIES,)
+
         if decision is RecoveryDecision.PROCEED:
             outcome = "success"
         elif decision is RecoveryDecision.SAFE_STOP:
@@ -145,8 +164,7 @@ class RecoveryPolicy:
             outcome,  # type: ignore[arg-type]
             seated=result.seated,
             check_confidence=result.confidence,
-            yaw_error_deg=result.yaw_error_deg,
-        )
+            yaw_error_deg=result.yaw_error_deg,)
 
     def _log_place(self, ctx: ManipulationContext, result: PlaceCheckResult, outcome: str,) -> None:
         self._log_action(
@@ -155,8 +173,7 @@ class RecoveryPolicy:
             result.reason.value,
             outcome,
             placed=result.placed,
-            check_confidence=result.confidence,
-        )
+            check_confidence=result.confidence,)
 
     def _log_stop(self, ctx: ManipulationContext, reason: str) -> None:
         self._log_action(ctx, "safe_stop", reason, "failed")

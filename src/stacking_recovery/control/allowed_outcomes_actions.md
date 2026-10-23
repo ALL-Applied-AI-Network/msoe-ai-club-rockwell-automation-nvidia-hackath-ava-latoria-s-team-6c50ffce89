@@ -15,5 +15,6 @@
 |Invalid input| Invalid confidence, missing data, or malformed vision result  | SAFE_STOP          |
 |Retry limit reached| Maximum allowed recovery attepts reached                      | SAFE_STOP          |
 
-MAX_GRASP_RETRIES = 2
+MAX_GRASP_RETRIES = 2  
+
 MAX_PLACEMENT_RETRIES = 1
