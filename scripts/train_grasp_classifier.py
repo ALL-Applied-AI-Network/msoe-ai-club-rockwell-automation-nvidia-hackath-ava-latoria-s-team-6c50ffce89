@@ -21,7 +21,10 @@ try:
 except ImportError:
     raise SystemExit("Install ML deps: pip install -e '.[ml]'") from None
 
-from stacking_recovery.data.wrist_augment import augment_wrist_bgr
+from stacking_recovery.data.wrist_augment import (
+    augment_table_pair_bgr,
+    augment_wrist_bgr,
+)
 from stacking_recovery.data.grasp_dataset_store import resolve_data_root
 from stacking_recovery.data.dataset_split import split_manifest_by_seed
 from stacking_recovery.vision.grasp_quality_model import (
@@ -48,12 +51,14 @@ class GraspDataset(Dataset):
         seed: int = 0,
         config: dict | None = None,
     ) -> None:
-        self.samples: list[tuple[object, int]] = []
+        self.samples: list[tuple[object, int, str | None]] = []
         self.augment = augment
         self.aug_cfg = aug_cfg
         self.rng = random.Random(seed)
         self.size = size
+        self.roi = roi
         config = config or {}
+        self.table_pair_mode = str(config.get("table_pair_mode", "raw_pair"))
         class_to_index = {
             label: index for index, label in enumerate(configured_classes(config))
         }
@@ -61,24 +66,36 @@ class GraspDataset(Dataset):
             img = cv2.imread(str(data_root / row["path"]))
             if img is None:
                 raise FileNotFoundError(row["path"])
-            crop = crop_for_observation(
-                img,
-                roi,
-                row.get("observation_source"),
-                str(config.get("table_pair_mode", "raw_pair")),
+            observation_source = row.get("observation_source")
+            # Keep table pairs raw until __getitem__ so paired augmentation is
+            # applied before the before/after/delta representation is built.
+            crop = (
+                img
+                if observation_source == "table_before_after"
+                else crop_for_observation(img, roi, observation_source)
             )
             label = normalize_grasp_label(row["label"], config)
             if label not in class_to_index:
                 raise ValueError(f"label {label!r} is not in configured classes")
-            self.samples.append((crop, class_to_index[label]))
+            self.samples.append((crop, class_to_index[label], observation_source))
 
     def __len__(self) -> int:
         return len(self.samples)
 
     def __getitem__(self, idx: int):
-        crop, label = self.samples[idx]
+        crop, label, observation_source = self.samples[idx]
         if self.augment:
-            crop = augment_wrist_bgr(crop, self.aug_cfg, rng=self.rng)
+            if observation_source == "table_before_after":
+                crop = augment_table_pair_bgr(crop, self.aug_cfg, rng=self.rng)
+            else:
+                crop = augment_wrist_bgr(crop, self.aug_cfg, rng=self.rng)
+        if observation_source == "table_before_after":
+            crop = crop_for_observation(
+                crop,
+                self.roi,
+                observation_source,
+                self.table_pair_mode,
+            )
         return preprocess(crop, self.size), label
 
 

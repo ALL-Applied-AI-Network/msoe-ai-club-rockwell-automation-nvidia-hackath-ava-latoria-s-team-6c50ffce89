@@ -30,6 +30,10 @@ def default_augment_config() -> dict[str, Any]:
         "shadow_prob": 0.2,
         "shadow_strength_max": 0.18,
         "hflip_prob": 0.0,
+        "affine_prob": 0.0,
+        "rotation_deg": 0.0,
+        "translate_frac": 0.0,
+        "scale_delta": 0.0,
     }
 
 
@@ -113,3 +117,55 @@ def augment_wrist_bgr(
         out = cv2.flip(out, 1)
 
     return out
+
+
+def augment_table_pair_bgr(
+    image_bgr: np.ndarray,
+    config: dict[str, Any] | None = None,
+    rng: random.Random | None = None,
+) -> np.ndarray:
+    """Apply one coherent augmentation to concatenated before/after frames.
+
+    Each half receives the same random photometric and geometric parameters so
+    augmentation artifacts cannot masquerade as robot motion.
+    """
+    if cv2 is None:
+        return image_bgr
+    height, width = image_bgr.shape[:2]
+    if width < 2 or width % 2:
+        return augment_wrist_bgr(image_bgr, config, rng=rng)
+
+    cfg = config or default_augment_config()
+    r = rng or random.Random()
+    midpoint = width // 2
+    before = image_bgr[:, :midpoint]
+    after = image_bgr[:, midpoint:]
+    if before.shape != after.shape:
+        return augment_wrist_bgr(image_bgr, cfg, rng=r)
+
+    # Replay one RNG stream so both frames receive identical camera effects.
+    shared_seed = r.randint(0, 2**31 - 1)
+    before_aug = augment_wrist_bgr(before, cfg, rng=random.Random(shared_seed))
+    after_aug = augment_wrist_bgr(after, cfg, rng=random.Random(shared_seed))
+
+    if r.random() < float(cfg.get("affine_prob", 0.0)):
+        angle_limit = float(cfg.get("rotation_deg", 0.0))
+        angle = r.uniform(-angle_limit, angle_limit)
+        scale_delta = float(cfg.get("scale_delta", 0.0))
+        scale = 1.0 + r.uniform(-scale_delta, scale_delta)
+        translate_frac = float(cfg.get("translate_frac", 0.0))
+        tx = r.uniform(-translate_frac, translate_frac) * midpoint
+        ty = r.uniform(-translate_frac, translate_frac) * height
+        matrix = cv2.getRotationMatrix2D(
+            ((midpoint - 1) / 2.0, (height - 1) / 2.0), angle, scale
+        )
+        matrix[:, 2] += (tx, ty)
+        warp_args = {
+            "dsize": (midpoint, height),
+            "flags": cv2.INTER_LINEAR,
+            "borderMode": cv2.BORDER_REFLECT_101,
+        }
+        before_aug = cv2.warpAffine(before_aug, matrix, **warp_args)
+        after_aug = cv2.warpAffine(after_aug, matrix, **warp_args)
+
+    return np.concatenate([before_aug, after_aug], axis=1)

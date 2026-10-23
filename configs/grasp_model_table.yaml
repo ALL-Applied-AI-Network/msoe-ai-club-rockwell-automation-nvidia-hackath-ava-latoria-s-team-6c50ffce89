@@ -43,6 +43,10 @@ augmentation:
   jpeg_quality_max: 95
   shadow_prob: 0.20
   shadow_strength_max: 0.15
+  affine_prob: 0.50
+  rotation_deg: 2.0
+  translate_frac: 0.02
+  scale_delta: 0.03
 
 feedback:
   enabled: false
