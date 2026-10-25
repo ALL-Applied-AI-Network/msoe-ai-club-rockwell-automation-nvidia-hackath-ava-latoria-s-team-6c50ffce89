@@ -59,7 +59,7 @@ def verify_cube_stack(positions, entries):
 
 def segments(pick, home):
     p = np.array([*pick["xy"], pick["pick_z"]])
-    d = np.array([*pick["place_xy"], pick["place_z"]])
+    d = np.array([*pick.get("command_place_xy", pick["place_xy"]), pick["place_z"]])
     up, above = p + [0, 0, 0.13], d + [0, 0, 0.13]
     spread = pick.get("spread_dir")
     dest_spread = pick.get("place_spread_dir", spread)
@@ -241,6 +241,11 @@ def main(argv=None, *, simulation_app=None):
         default=None,
         help="Run only one zero-based planned pick (targeted data collection)",
     )
+    ap.add_argument(
+        "--rl-checkpoint",
+        default=None,
+        help="Q-table checkpoint for simulation-only policy='rl' trials",
+    )
     a = ap.parse_args(argv)
     if a.fps != 30:
         ap.error("Use 30 fps: two 1/60 s physics steps per video frame")
@@ -268,7 +273,32 @@ def main(argv=None, *, simulation_app=None):
     if trial_overrides:
         plan = apply_plan_overrides(plan, trial_overrides)
     validate_plan(plan, allow_collection_ground_truth=bool(a.collect_dataset))
-    closed_loop = a.closed_loop or plan.get("closed_loop_policy") == "closed_loop"
+    policy_mode = plan.get("closed_loop_policy", "open_loop")
+    place_offset = np.asarray(
+        plan.get("trial_place_xy_offset_m") or [0.0, 0.0], dtype=float
+    )
+    if place_offset.shape != (2,) or not np.all(np.isfinite(place_offset)):
+        raise ValueError("place_xy_offset_m must contain two finite values")
+    rl_adapter = None
+    if policy_mode == "rl":
+        if not a.rl_checkpoint:
+            ap.error("policy='rl' requires --rl-checkpoint")
+        from stacking_recovery.integration.isaac_rl import IsaacRLPlacementAdapter
+
+        rl_adapter = IsaacRLPlacementAdapter(Path(a.rl_checkpoint).resolve())
+    for pick in plan["picks"]:
+        target_xy = np.asarray(pick["place_xy"], dtype=float)
+        if rl_adapter is not None:
+            rl_decision = rl_adapter.decide(
+                target_xy=target_xy.tolist(),
+                injected_offset_m=place_offset.tolist(),
+                stack_level=int(pick.get("stack_level", 0)),
+            )
+            pick["command_place_xy"] = list(rl_decision.commanded_xy)
+            pick["rl_placement_decision"] = rl_decision.to_dict()
+        else:
+            pick["command_place_xy"] = (target_xy + place_offset).tolist()
+    closed_loop = a.closed_loop or policy_mode in ("closed_loop", "rl")
     verification = (
         a.verification
         or trial_overrides.get("verification")
@@ -606,7 +636,19 @@ def main(argv=None, *, simulation_app=None):
                 "pickup_verified": False,
                 "placement_verified": False,
                 "trajectory_ik_failures": 0,
+                "target_place_xy": list(pick["place_xy"]),
+                "command_place_xy": list(pick.get("command_place_xy", pick["place_xy"])),
             }
+            if pick.get("rl_placement_decision") is not None:
+                event["rl_placement_decision"] = pick["rl_placement_decision"]
+                if pick["rl_placement_decision"].get("safe_stop"):
+                    event["rl_safe_stop"] = True
+                    events.append(event)
+                    abort_reason = (
+                        f'RL safety stop before cube level {pick.get("stack_level")}'
+                    )
+                    print(f"[sort] {abort_reason}", flush=True)
+                    break
             if "stack_level" in pick:
                 event.update(
                     stack_level=pick["stack_level"],
@@ -954,6 +996,7 @@ def main(argv=None, *, simulation_app=None):
                 "cube_tip_clearance_m": C.CUBE_TIP_CLEARANCE,
             },
             "closed_loop": closed_loop,
+            "policy": policy_mode,
             "grasp_verification": verification if closed_loop else None,
             "grasp_feedback": bool(grasp_recorder),
             "grasp_dataset_collect": bool(a.collect_dataset),

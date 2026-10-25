@@ -49,12 +49,34 @@ python scripts/train_rl_stacking.py --episodes 2000 --eval-episodes 200
 
 ## How it connects to Isaac Sim
 
-The next step is an adapter that converts each Isaac result into
-`StackingState`, executes the chosen bounded placement/recovery action through
-the existing motion planner, and gives the agent a reward after the placement
-verification step. We should train and evaluate that adapter only in Isaac Sim.
+`IsaacRLPlacementAdapter` converts a hidden placement offset into
+`StackingState`, asks the safety-shielded policy for bounded corrections, and
+passes only the corrected XY destination to the existing IK/trajectory code.
+The existing code still owns joint motion, workspace limits, grasp checks, and
+placement verification.
 
-For a strong demo, compare the same hidden scene seeds across:
+Prepare five matched seeds without starting Isaac:
+
+```bash
+python scripts/sim/run_rl_isaac_comparison.py \
+  --run /workspace/team-data/collection_20261021_ready \
+  --prepare-only
+```
+
+After the current data collector finishes, run the actual comparison:
+
+```bash
+/isaac-sim/python.sh scripts/sim/run_rl_isaac_comparison.py \
+  --run /workspace/team-data/collection_20261021_ready \
+  --checkpoint models/rl_stacking_qtable.json
+```
+
+Do not run this beside another Isaac collector on the L4. The script launches
+one simulation process and evaluates open-loop, deterministic closed-loop, and
+RL on identical seeds and hidden placement offsets. Results go to
+`results/rl_isaac_comparison/summary.json`.
+
+For the demo, compare the same hidden scene seeds across:
 
 1. open-loop stacking;
 2. the deterministic recovery state machine; and

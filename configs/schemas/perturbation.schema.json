@@ -14,17 +14,24 @@
         "partial_occlusion",
         "touching_cubes",
         "distractor",
-        "cube_tilted"
+        "cube_tilted",
+        "placement_shift"
       ]
     },
     "seed": { "type": "integer" },
-    "policy": { "type": "string", "enum": ["open_loop", "closed_loop"] },
+    "policy": { "type": "string", "enum": ["open_loop", "closed_loop", "rl"] },
     "finger": {
       "type": "string",
       "enum": ["stock_aa_scallop", "cube_flat_pad"]
     },
     "yaw_offset_deg": { "type": "number" },
     "pick_xy_offset_m": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "place_xy_offset_m": {
       "type": "array",
       "items": { "type": "number" },
       "minItems": 2,
