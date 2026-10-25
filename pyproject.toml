@@ -11,6 +11,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["opencv-python>=4.8"]
 bench = ["pyyaml>=6.0"]
+rl = ["numpy>=1.24"]
 ml = [
   "opencv-python>=4.8",
   "pyyaml>=6.0",

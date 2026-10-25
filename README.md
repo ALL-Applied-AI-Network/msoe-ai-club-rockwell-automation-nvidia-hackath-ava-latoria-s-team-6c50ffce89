@@ -65,6 +65,13 @@ Starter sim: `data/fanuc_er4ia_hackathon_starter_v05 (1)/fanuc_er4ia_sim/`
 2. **[Fluid Mixing Station 3](https://msoe-maic.com/library?article=Rockwell-NVIDIA-Fall-2026-Fluid-Mixing):** use synchronized camera views to detect fill and color problems caused by recipes and fluid carryover.
 3. **[Grasping and Sorting](https://msoe-maic.com/library?article=Rockwell-NVIDIA-Fall-2026-Grasping-Sorting):** use a digital twin and multiple cameras to make a standalone FANUC arm grasp and sort objects more reliably.
 
+## Ava RL experiment
+
+The `ava-rl` branch adds a simulation-only reinforcement-learning experiment
+for high-level cube placement and recovery decisions. See
+[`docs/RL_STACKING_EXPERIMENT.md`](docs/RL_STACKING_EXPERIMENT.md) for the
+design, safety boundary, training command, and current evaluation workflow.
+
 ## Read before your team plan
 
 - **[Compute: Brev, DGX Spark and build.nvidia.com](https://msoe-maic.com/library?article=Rockwell-NVIDIA-Fall-2026-Compute).** Brev credits are spent whenever an instance is running, so stop instances you aren't using.
