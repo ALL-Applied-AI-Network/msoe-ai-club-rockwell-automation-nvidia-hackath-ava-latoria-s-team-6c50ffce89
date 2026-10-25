@@ -41,6 +41,7 @@ def main() -> int:
     parser.add_argument("--target-val", type=int, required=True)
     parser.add_argument("--target-test", type=int, required=True)
     parser.add_argument("--max-attempts", type=int, required=True)
+    parser.add_argument("--seed-min", type=int, default=0)
     args = parser.parse_args()
 
     repo = args.repo.resolve()
@@ -70,7 +71,10 @@ def main() -> int:
         while attempts < args.max_attempts:
             rows = load_manifest(out / "manifest.json")
             attempt = next_collection_attempt(
-                rows, targets, attempted_seeds=attempted_seeds
+                rows,
+                targets,
+                attempted_seeds=attempted_seeds,
+                seed_min=args.seed_min,
             )
             if attempt is None:
                 print("BALANCED COLLECTION COMPLETE", flush=True)

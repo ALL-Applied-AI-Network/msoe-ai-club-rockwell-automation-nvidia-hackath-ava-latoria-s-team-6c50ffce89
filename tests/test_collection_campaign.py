@@ -52,6 +52,15 @@ class TestCollectionCampaign(unittest.TestCase):
         self.assertNotEqual(first.seed, second.seed)
         self.assertEqual(first.split, second.split)
 
+    def test_seed_floor_keeps_external_test_campaign_independent(self) -> None:
+        attempt = next_collection_attempt(
+            [], CampaignTargets(train=1, val=1, test=1), seed_min=10_000
+        )
+        self.assertIsNotNone(attempt)
+        assert attempt is not None
+        self.assertGreaterEqual(attempt.seed, 10_000)
+        self.assertEqual(split_for_seed(attempt.seed), attempt.split)
+
     def test_campaign_completion_checks_both_labels_in_every_split(self) -> None:
         rows = [
             {"label": label, "split": split, "seed": i}

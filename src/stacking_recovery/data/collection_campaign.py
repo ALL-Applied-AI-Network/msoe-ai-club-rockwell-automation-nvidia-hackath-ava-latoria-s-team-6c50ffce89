@@ -68,8 +68,10 @@ def campaign_complete(
     )
 
 
-def _next_seed_for_split(split: str, used_seeds: set[int]) -> int:
-    seed = 0
+def _next_seed_for_split(
+    split: str, used_seeds: set[int], *, seed_min: int = 0
+) -> int:
+    seed = max(0, int(seed_min))
     while seed in used_seeds or split_for_seed(seed) != split:
         seed += 1
     return seed
@@ -125,6 +127,7 @@ def next_collection_attempt(
     targets: CampaignTargets,
     *,
     attempted_seeds: Iterable[int] = (),
+    seed_min: int = 0,
 ) -> CollectionAttempt | None:
     """Plan the next attempt from actual manifest deficits.
 
@@ -142,7 +145,7 @@ def next_collection_attempt(
         for row in rows
         if isinstance(row.get("seed"), int)
     })
-    seed = _next_seed_for_split(split, used_seeds)
+    seed = _next_seed_for_split(split, used_seeds, seed_min=seed_min)
     if label == "GOOD":
         scenario = "nominal"
         details: dict[str, Any] = {"condition_id": "nominal"}

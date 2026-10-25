@@ -88,6 +88,7 @@ campaign_worker() {
   local val_target="$3"
   local test_target="$4"
   local max_attempts="${5:-500}"
+  local seed_min="${6:-0}"
   "${ISAAC_DIR}/python.sh" "${REPO_DIR}/scripts/sim/collect_balanced_table_dataset.py" \
     --repo "${REPO_DIR}" \
     --run "${RUN_DIR}" \
@@ -96,7 +97,9 @@ campaign_worker() {
     --target-train "${train_target}" \
     --target-val "${val_target}" \
     --target-test "${test_target}" \
-    --max-attempts "${max_attempts}"
+    --max-attempts "${max_attempts}" \
+    --seed-min "${seed_min}" \
+    --batch-size 10
 
   echo "[$(date -Is)] validating balanced campaign dataset"
   PYTHONPATH="${REPO_DIR}/src" "${ISAAC_DIR}/python.sh" \
@@ -166,17 +169,22 @@ case "${command}" in
     fi
     mode="${2:-full}"
     case "${mode}" in
-      quick) train_target=20; val_target=5; test_target=5; max_attempts=200 ;;
-      full) train_target=100; val_target=25; test_target=25; max_attempts=500 ;;
-      large) train_target=360; val_target=90; test_target=90; max_attempts=2000 ;;
-      *) echo "Use: $0 campaign [quick|full|large]"; exit 2 ;;
+      quick) train_target=20; val_target=5; test_target=5; max_attempts=200; seed_min=0 ;;
+      full) train_target=100; val_target=25; test_target=25; max_attempts=500; seed_min=0 ;;
+      large) train_target=360; val_target=90; test_target=90; max_attempts=2000; seed_min=0 ;;
+      external-test) train_target=1; val_target=1; test_target=250; max_attempts=1200; seed_min=10000 ;;
+      *) echo "Use: $0 campaign [quick|full|large|external-test]"; exit 2 ;;
     esac
     [[ -x "${ISAAC_DIR}/python.sh" ]] || { echo "Isaac Sim not found at ${ISAAC_DIR}"; exit 1; }
     [[ -f "${RUN_DIR}/sort_plan.json" ]] || { echo "Prepared run not found: ${RUN_DIR}"; exit 1; }
     mkdir -p "${JOB_DIR}"
-    dataset="${TEAM_DATA_DIR:-/workspace/team-data}/table-campaign-$(date +%Y%m%d-%H%M%S)"
+    if [[ "${mode}" == "external-test" ]]; then
+      dataset="${TEAM_DATA_DIR:-/workspace/team-data}/table-external-test-$(date +%Y%m%d-%H%M%S)"
+    else
+      dataset="${TEAM_DATA_DIR:-/workspace/team-data}/table-campaign-$(date +%Y%m%d-%H%M%S)"
+    fi
     printf '%s\n' "${dataset}" >"${LATEST_FILE}"
-    nohup bash "$0" _campaign_worker "${dataset}" "${train_target}" "${val_target}" "${test_target}" "${max_attempts}" >"${LOG_FILE}" 2>&1 &
+    nohup bash "$0" _campaign_worker "${dataset}" "${train_target}" "${val_target}" "${test_target}" "${max_attempts}" "${seed_min}" >"${LOG_FILE}" 2>&1 &
     printf '%s\n' "$!" >"${PID_FILE}"
     echo "Balanced campaign started in the background (PID $!)."
     echo "Dataset: ${dataset}"
@@ -212,9 +220,9 @@ case "${command}" in
     balance_worker "$2"
     ;;
   _campaign_worker)
-    campaign_worker "$2" "$3" "$4" "$5" "${6:-500}"
+    campaign_worker "$2" "$3" "$4" "$5" "${6:-500}" "${7:-0}"
     ;;
   *)
-    echo "Usage: $0 {campaign [quick|full|large]|start [quick|full]|balance|status|watch|stop}"
+    echo "Usage: $0 {campaign [quick|full|large|external-test]|start [quick|full]|balance|status|watch|stop}"
     ;;
 esac

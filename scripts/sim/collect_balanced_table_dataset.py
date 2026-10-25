@@ -41,6 +41,12 @@ def main() -> int:
     parser.add_argument("--target-test", type=int, default=25)
     parser.add_argument("--max-attempts", type=int, default=500)
     parser.add_argument(
+        "--seed-min",
+        type=int,
+        default=0,
+        help="Never use a seed below this value (useful for independent evaluation campaigns)",
+    )
+    parser.add_argument(
         "--batch-size",
         type=int,
         default=1,
@@ -80,7 +86,7 @@ def main() -> int:
         attempts = 0
         while attempts < args.max_attempts:
             rows = load_manifest(out / "manifest.json")
-            if next_collection_attempt(rows, targets) is None:
+            if next_collection_attempt(rows, targets, seed_min=args.seed_min) is None:
                 print("BALANCED COLLECTION COMPLETE", flush=True)
                 _print_progress(rows, targets)
                 return 0
@@ -102,6 +108,8 @@ def main() -> int:
                 str(args.target_test),
                 "--max-attempts",
                 str(batch_attempts),
+                "--seed-min",
+                str(args.seed_min),
             ]
             if args.dry_run:
                 print(" ".join(command), flush=True)
@@ -141,7 +149,10 @@ def main() -> int:
     while attempts < args.max_attempts:
         rows = load_manifest(out / "manifest.json")
         attempt = next_collection_attempt(
-            rows, targets, attempted_seeds=attempted_seeds
+            rows,
+            targets,
+            attempted_seeds=attempted_seeds,
+            seed_min=args.seed_min,
         )
         if attempt is None:
             print("BALANCED COLLECTION COMPLETE", flush=True)
