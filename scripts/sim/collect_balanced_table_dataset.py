@@ -122,8 +122,21 @@ def main() -> int:
                     file=sys.stderr,
                 )
                 return result.returncode
-            if result.returncode == 0:
+
+            # Some Isaac runs return success when a batch ends even though the
+            # campaign still has quota deficits. Trust the manifest, not the
+            # child exit code, before declaring the full campaign complete.
+            rows = load_manifest(out / "manifest.json")
+            if next_collection_attempt(rows, targets, seed_min=args.seed_min) is None:
+                print("BALANCED COLLECTION COMPLETE", flush=True)
+                _print_progress(rows, targets)
                 return 0
+            if result.returncode == 0:
+                print(
+                    "Isaac batch ended cleanly before quotas were met; "
+                    "starting the next batch.",
+                    flush=True,
+                )
         print(f"Stopped after max_attempts={args.max_attempts} before quotas were met.")
         _print_progress(load_manifest(out / "manifest.json"), targets)
         return 3
