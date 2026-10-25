@@ -81,3 +81,4 @@ def grasp_check_stub(
         confidence=1.0,
         reason=FailureReason.STUB,
     )
+
