@@ -1,4 +1,4 @@
-"""MobileNetV3 grasp-quality classifier — train offline, infer at runtime."""
+"""Grasp-quality classifiers — train offline, infer at runtime."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from stacking_recovery.vision.grasp_labels import (
     GRASP_CLASSES,
     class_to_failure_reason,
 )
+from stacking_recovery.vision.pair_models import ModelSpec, build_pair_model
 
 try:
     import cv2
@@ -151,7 +152,15 @@ class GraspQualityModel:
         num_classes = len(self.classes)
         # The checkpoint already contains every weight. Avoid an internet download
         # when the model is loaded in the hackathon lab or on a fresh Brev instance.
-        self._model = build_mobilenet_v3(num_classes, pretrained=False)
+        backbone = str(self.config.get("backbone", "mobilenet_v3_small"))
+        pair_mode = (
+            "siamese"
+            if self.config.get("table_pair_mode") == "siamese_rgb_pair"
+            else "delta"
+        )
+        self._model = build_pair_model(
+            ModelSpec(backbone, pair_mode, pretrained=False), num_classes
+        )
         state = torch.load(self.model_path, map_location="cpu", weights_only=True)
         self._model.load_state_dict(state)
         self._model.eval()
@@ -165,14 +174,29 @@ class GraspQualityModel:
         if self._model is None:
             self.load()
         assert self._model is not None and self._device is not None
+        table_pair_mode = str(self.config.get("table_pair_mode", "raw_pair"))
         roi = crop_for_observation(
             image_bgr,
             self.config["roi"],
             observation_source,
-            str(self.config.get("table_pair_mode", "raw_pair")),
+            table_pair_mode,
         )
         size = int(self.config.get("input_size", 224))
-        x = preprocess(roi, size).unsqueeze(0)
+        if table_pair_mode == "siamese_rgb_pair":
+            if observation_source != "table_before_after":
+                raise ValueError(
+                    "siamese_rgb_pair requires observation_source='table_before_after'"
+                )
+            _, width = roi.shape[:2]
+            if width < 2 or width % 2:
+                raise ValueError(f"invalid before/after pair shape: {roi.shape}")
+            before = roi[:, : width // 2]
+            after = roi[:, width // 2 :]
+            if before.shape != after.shape:
+                raise ValueError(f"mismatched before/after pair: {roi.shape}")
+            x = torch.cat([preprocess(before, size), preprocess(after, size)]).unsqueeze(0)
+        else:
+            x = preprocess(roi, size).unsqueeze(0)
         with torch.no_grad():
             logits = self._model(x)
             probs = torch.softmax(logits, dim=1)[0].cpu().numpy()

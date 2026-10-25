@@ -33,6 +33,7 @@ hardware/cad/*
 *.onnx
 *.safetensors
 models/*.meta.json
+!models/grasp_pickup_table_resnet18_siamese_224.pt
 
 # Stretch training artifacts
 stretch/yolo/runs/

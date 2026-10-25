@@ -1,0 +1,41 @@
+{
+  "dataset": "/workspace/team-data/table-campaign-20261022-203838-augmented",
+  "ranking": [
+    {
+      "name": "resnet18_siamese",
+      "accuracy": 0.9833333333333333,
+      "macro_f1": 0.983328702417338,
+      "unsafe_good_rate": 0.03333333333333333,
+      "latency_ms": 0.32111427222187355,
+      "threshold_good": 0.901,
+      "checkpoint": "/workspace/model-search-full/resnet18_siamese.pt"
+    },
+    {
+      "name": "mobilenet_v3_small_delta",
+      "accuracy": 0.9777777777777777,
+      "macro_f1": 0.9777667984189724,
+      "unsafe_good_rate": 0.044444444444444446,
+      "latency_ms": 0.3890619944447356,
+      "threshold_good": 0.208,
+      "checkpoint": "/workspace/model-search-full/mobilenet_v3_small_delta.pt"
+    },
+    {
+      "name": "mobilenet_v3_small_siamese",
+      "accuracy": 0.9666666666666667,
+      "macro_f1": 0.966662550932214,
+      "unsafe_good_rate": 0.044444444444444446,
+      "latency_ms": 0.5468434666662839,
+      "threshold_good": 0.076,
+      "checkpoint": "/workspace/model-search-full/mobilenet_v3_small_siamese.pt"
+    },
+    {
+      "name": "efficientnet_b0_siamese",
+      "accuracy": 0.7777777777777778,
+      "macro_f1": 0.7755331088664422,
+      "unsafe_good_rate": 0.12222222222222222,
+      "latency_ms": 0.8230701277777067,
+      "threshold_good": 0.001,
+      "checkpoint": "/workspace/model-search-full/efficientnet_b0_siamese.pt"
+    }
+  ]
+}
