@@ -15,6 +15,7 @@ from closed_loop_support import ensure_stacking_recovery_on_path, rgba_to_bgr
 import fk
 import ik
 from cube_pose import square_yaw
+from stack_safety import measure_stack_disturbance, segments
 
 
 def ease(t):
@@ -66,29 +67,6 @@ def verify_cube_stack(positions, entries):
             return False
         centres.append(centre)
     return True
-
-
-def segments(pick, home):
-    p = np.array([*pick["xy"], pick["pick_z"]])
-    d = np.array([*pick.get("command_place_xy", pick["place_xy"]), pick["place_z"]])
-    up, above = p + [0, 0, 0.13], d + [0, 0, 0.13]
-    spread = pick.get("spread_dir")
-    dest_spread = pick.get("place_spread_dir", spread)
-    # Seat on the expected cube width instead of forcing rigid fingers through it.
-    shut = C.CUBE_JAW_HALF_TARGET if pick["category"] == "cube" else C.JAW_CLOSED
-    return [
-        ("approach", home, up, 1.2, C.JAW_OPEN, C.JAW_OPEN, spread),
-        ("descend", up, p, 0.8, C.JAW_OPEN, C.JAW_OPEN, spread),
-        ("close", p, p, 0.6, C.JAW_OPEN, shut, spread),
-        ("dwell", p, p, 0.5, shut, shut, spread),
-        ("lift", p, up, 0.8, shut, shut, spread),
-        ("carry", up, above, 1.4, shut, shut, dest_spread),
-        ("lower", above, d, 0.8, shut, shut, dest_spread),
-        ("release", d, d, 0.6, shut, C.JAW_OPEN, dest_spread),
-        ("settle", d, d, 0.6, C.JAW_OPEN, C.JAW_OPEN, dest_spread),
-        ("retreat", d, above, 0.8, C.JAW_OPEN, C.JAW_OPEN, dest_spread),
-        ("home", above, home, 1.1, C.JAW_OPEN, C.JAW_OPEN, None),
-    ]
 
 
 def validate_plan(plan, *, allow_collection_ground_truth=False):
@@ -797,7 +775,15 @@ def main(argv=None, *, simulation_app=None):
                                         ),
                                     )
                             frame += 1
-                        if name in ("descend", "dwell", "lift", "lower", "release"):
+                        if name in (
+                            "descend",
+                            "dwell",
+                            "lift",
+                            "lower",
+                            "prelower",
+                            "final_lower",
+                            "release",
+                        ):
                             measured = arm.get_joint_positions()
                             rot, tip = fk.tool_pose(measured[arm_idx], tool)
                             measured_spread = rot @ np.array(C.FINGER_SPREAD_AXIS)
@@ -1107,6 +1093,12 @@ def main(argv=None, *, simulation_app=None):
                     )
                     event["stack_support_verified"] = verify_cube_stack(
                         finish, events + [event]
+                    )
+                    disturbance = measure_stack_disturbance(start, finish, events)
+                    event.update(disturbance)
+                    event["placement_verified"] = bool(
+                        event["placement_verified"]
+                        and disturbance["tower_disturbance_verified"]
                     )
             events.append(event)
             (run / "execution_events.json").write_text(

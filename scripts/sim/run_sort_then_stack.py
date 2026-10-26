@@ -309,6 +309,11 @@ def classifier_row(stage: str, index: int, event: dict[str, Any]) -> dict[str, A
         "pickup_verified": physics_good,
         "placement_verified": bool(event.get("placement_verified")),
         "placement_error_mm": event.get("placement_error_mm"),
+        "tower_disturbance_verified": event.get("tower_disturbance_verified"),
+        "max_existing_layer_shift_mm": event.get("max_existing_layer_shift_mm"),
+        "max_existing_layer_yaw_change_deg": event.get(
+            "max_existing_layer_yaw_change_deg"
+        ),
         "cycle_time_s": event.get("cycle_time_s"),
         "visual_gate": (visual.get("gate") or {}).get("action"),
     }
@@ -325,6 +330,10 @@ def summarize(sort_report: dict[str, Any], stack_report: dict[str, Any]) -> dict
     fp = sum(r["predicted_class"] == "GOOD" and not r["physics_pickup_success"] for r in scored)
     fn = sum(r["predicted_class"] != "GOOD" and r["physics_pickup_success"] for r in scored)
     tn = sum(r["predicted_class"] != "GOOD" and not r["physics_pickup_success"] for r in scored)
+    stack_rows = [row for row in rows if row["stage"] == "stack"]
+    disturbance_rows = [
+        row for row in stack_rows if row["tower_disturbance_verified"] is not None
+    ]
     return {
         "full_process_complete": bool(sort_report.get("task_complete"))
         and bool(stack_report.get("task_complete")),
@@ -334,6 +343,27 @@ def summarize(sort_report: dict[str, Any], stack_report: dict[str, Any]) -> dict
         "sort_placements": sort_report.get("verified_placements"),
         "stack_pickups": stack_report.get("verified_pickups"),
         "stack_placements": stack_report.get("verified_placements"),
+        "tower_safety": {
+            "placements_checked": len(disturbance_rows),
+            "all_existing_layers_stable": bool(disturbance_rows)
+            and all(row["tower_disturbance_verified"] for row in disturbance_rows),
+            "max_existing_layer_shift_mm": max(
+                (
+                    float(row["max_existing_layer_shift_mm"])
+                    for row in disturbance_rows
+                    if row["max_existing_layer_shift_mm"] is not None
+                ),
+                default=None,
+            ),
+            "max_existing_layer_yaw_change_deg": max(
+                (
+                    float(row["max_existing_layer_yaw_change_deg"])
+                    for row in disturbance_rows
+                    if row["max_existing_layer_yaw_change_deg"] is not None
+                ),
+                default=None,
+            ),
+        },
         "classifier": {
             "scored_grabs": len(scored),
             "correct": sum(r["classifier_correct"] is True for r in scored),
@@ -359,6 +389,7 @@ def summarize(sort_report: dict[str, Any], stack_report: dict[str, Any]) -> dict
 
 def markdown(summary: dict[str, Any]) -> str:
     classifier = summary["classifier"]
+    tower = summary["tower_safety"]
     accuracy = (
         "not scored"
         if classifier["accuracy"] is None
@@ -371,6 +402,12 @@ def markdown(summary: dict[str, Any]) -> str:
         "",
         f"- Sort: {summary['sort_pickups']} pickups, {summary['sort_placements']} placements",
         f"- Stack: {summary['stack_pickups']} pickups, {summary['stack_placements']} placements",
+        (
+            "- Existing tower stayed stable: "
+            f"{'PASS' if tower['all_existing_layers_stable'] else 'FAIL'} "
+            f"(max shift {tower['max_existing_layer_shift_mm'] or 0:.3f} mm, "
+            f"max yaw change {tower['max_existing_layer_yaw_change_deg'] or 0:.3f} deg)"
+        ),
         f"- Classifier accuracy against Isaac physics: {accuracy}",
         "",
         "## Every grab",

@@ -71,6 +71,7 @@ class TestSortThenStack(unittest.TestCase):
         self.assertEqual(summary["classifier"]["accuracy"], 0.5)
         self.assertEqual(summary["classifier"]["confusion"]["true_positive"], 1)
         self.assertEqual(summary["classifier"]["confusion"]["false_negative"], 1)
+        self.assertFalse(summary["tower_safety"]["all_existing_layers_stable"])
 
     def test_visual_benchmark_does_not_enable_rl_placement(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
