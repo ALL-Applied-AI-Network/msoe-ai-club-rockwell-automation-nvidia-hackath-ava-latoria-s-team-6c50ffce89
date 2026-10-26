@@ -47,7 +47,8 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
     durations = [e["duration_s"] for e in events if e.get("duration_s") is not None]
     attempt_indices = [e.get("attempt_index", 0) for e in grasp_checks]
     comparisons = Counter()
-    for pick in report.get("events", []):
+    picks = report.get("picks", report.get("events", []))
+    for pick in picks:
         grasp = pick.get("closed_loop_grasp")
         physics = pick.get("pickup_verified")
         if not isinstance(grasp, dict) or not isinstance(physics, bool):
@@ -68,6 +69,19 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
         "task_complete": report.get("task_complete"),
         "verified_pickups": report.get("verified_pickups"),
         "verified_placements": report.get("verified_placements"),
+        "pick_attempts": sum(
+            1 + int(pick.get("closed_loop_grasp_attempts", 0)) for pick in picks
+        ),
+        "placement_errors_mm": [
+            float(pick["placement_error_mm"])
+            for pick in picks
+            if pick.get("placement_error_mm") is not None
+        ],
+        "cycle_times_s": [
+            float(pick["cycle_time_s"])
+            for pick in picks
+            if pick.get("cycle_time_s") is not None
+        ],
         "first_grasp_success": first_grasp_ok,
         "regrasp_count": regrasps,
         "recovery_success_count": recoveries,

@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import time
 
 import numpy as np
 import scene_config as C
@@ -588,6 +589,7 @@ def main(argv=None, *, simulation_app=None):
         else:
             picks_to_run = plan["picks"][: a.max_picks] if a.max_picks else plan["picks"]
         for pick in picks_to_run:
+            pick_started_at = time.perf_counter()
             # Select equivalent jaw-direction signs once for the whole grasp,
             # so approach/descend and carry/lower cannot differ by 180 degrees.
             pick = dict(pick)
@@ -1028,6 +1030,7 @@ def main(argv=None, *, simulation_app=None):
                     break
             event["closed_loop_grasp_attempts"] = grasp_attempt
             event["closed_loop_placement_attempts"] = placement_attempt
+            event["cycle_time_s"] = time.perf_counter() - pick_started_at
             if pick_abort:
                 events.append(event)
                 print(f"[sort] {abort_reason}", flush=True)
