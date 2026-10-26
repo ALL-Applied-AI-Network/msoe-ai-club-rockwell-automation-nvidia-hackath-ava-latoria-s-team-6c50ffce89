@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +21,33 @@ from stacking_recovery.data.collection_campaign import (  # noqa: E402
     next_collection_attempt,
 )
 from stacking_recovery.data.grasp_dataset_store import load_manifest  # noqa: E402
+
+
+def _run_batch(command: list[str], timeout_seconds: float) -> tuple[int, bool]:
+    """Run an Isaac batch with a hard timeout and clean up its process group."""
+    process = subprocess.Popen(command, start_new_session=True)
+    try:
+        return process.wait(timeout=timeout_seconds), False
+    except subprocess.TimeoutExpired:
+        print(
+            f"Isaac batch exceeded {timeout_seconds / 60:.1f} minutes; "
+            "stopping only that batch and continuing from the saved manifest.",
+            file=sys.stderr,
+            flush=True,
+        )
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except (AttributeError, ProcessLookupError, PermissionError):
+            process.terminate()
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (AttributeError, ProcessLookupError, PermissionError):
+                process.kill()
+            process.wait()
+        return 124, True
 
 
 def _print_progress(rows: list[dict], targets: CampaignTargets) -> None:
@@ -52,6 +80,12 @@ def main() -> int:
         default=1,
         help="Reuse one Isaac process for this many fully reset trials",
     )
+    parser.add_argument(
+        "--batch-timeout-minutes",
+        type=float,
+        default=25.0,
+        help="restart a batch that stops writing samples for too long",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -63,6 +97,8 @@ def main() -> int:
         parser.error("all split targets must be positive")
     if args.batch_size <= 0:
         parser.error("--batch-size must be positive")
+    if args.batch_timeout_minutes <= 0:
+        parser.error("--batch-timeout-minutes must be positive")
     if not (run / "sort_plan.json").is_file():
         parser.error(f"prepared run missing sort_plan.json: {run}")
 
@@ -114,14 +150,18 @@ def main() -> int:
             if args.dry_run:
                 print(" ".join(command), flush=True)
                 return 0
-            result = subprocess.run(command, check=False)
+            returncode, timed_out = _run_batch(
+                command, args.batch_timeout_minutes * 60.0
+            )
             attempts += batch_attempts
-            if result.returncode not in (0, 3):
+            if timed_out:
+                continue
+            if returncode not in (0, 3):
                 print(
-                    f"Isaac batch failed with exit code {result.returncode}",
+                    f"Isaac batch failed with exit code {returncode}",
                     file=sys.stderr,
                 )
-                return result.returncode
+                return returncode
 
             # Some Isaac runs return success when a batch ends even though the
             # campaign still has quota deficits. Trust the manifest, not the
@@ -131,7 +171,7 @@ def main() -> int:
                 print("BALANCED COLLECTION COMPLETE", flush=True)
                 _print_progress(rows, targets)
                 return 0
-            if result.returncode == 0:
+            if returncode == 0:
                 print(
                     "Isaac batch ended cleanly before quotas were met; "
                     "starting the next batch.",

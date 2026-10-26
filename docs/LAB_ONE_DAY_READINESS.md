@@ -49,6 +49,20 @@ Run the matched comparison after data collection stops:
           320 321 322 323 324 325 326 327 328 329
 ```
 
+After classifier evaluation and the matched Isaac comparison, generate one
+combined scorecard:
+
+```bash
+python scripts/generate_lab_readiness_report.py \
+  --data /workspace/team-data/table-external-test-20261025-190359 \
+  --classifier-metrics results/external_test/external_test_metrics.json \
+  --rl-metrics results/rl_isaac_comparison/summary.json
+```
+
+This writes `results/lab_readiness/readiness.json` and a short Markdown summary.
+The current collection target is 250 examples **per binary class**, or 500
+independent test pairs total.
+
 ## Information to obtain from the lab before arrival
 
 - Exact FANUC arm and controller model, supported control interface, and who
