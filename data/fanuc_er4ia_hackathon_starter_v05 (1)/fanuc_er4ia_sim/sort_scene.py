@@ -28,6 +28,16 @@ def turn(a, b, t):
     return np.array([a[0] * c - a[1] * s, a[0] * s + a[1] * c, 0.0])
 
 
+def expected_placement_centre_z(category):
+    """Return the resting object-centre height for a non-stacked placement."""
+    half_height = {
+        "cube": C.CUBE_EDGE / 2,
+        "cap": C.CAP_HEIGHT / 2,
+        "vial": C.VIAL_RADIUS,
+    }[category]
+    return C.TABLE_TOP_Z + C.SURFACE_DZ + half_height
+
+
 def verify_cube_stack(positions, entries):
     """Check site, layer heights and actual adjacent-cube support geometry."""
     centres = []
@@ -1041,15 +1051,7 @@ def main(argv=None, *, simulation_app=None):
                 event["placement_error_mm"] = float(
                     np.linalg.norm(position[:2] - pick["place_xy"]) * 1000
                 )
-                expected_z = (
-                    C.TABLE_TOP_Z
-                    + C.SURFACE_DZ
-                    + {
-                        "cube": 1.5 * C.CUBE_EDGE,
-                        "cap": C.CAP_HEIGHT / 2,
-                        "vial": C.VIAL_RADIUS,
-                    }[pick["category"]]
-                )
+                expected_z = expected_placement_centre_z(pick["category"])
                 if "stack_level" in pick:
                     expected_z = C.TABLE_TOP_Z + pick["expected_centre_z"]
                 event["placement_verified"] = bool(
