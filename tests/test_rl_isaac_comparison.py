@@ -42,6 +42,50 @@ class TestRLIsaacComparison(unittest.TestCase):
             )
             summary = MODULE.summarize([report])
         self.assertEqual(summary["aggregate"]["rl"]["visual_gate_stops"], 1)
+        self.assertEqual(summary["acceptance"]["status"], "insufficient_evidence")
+
+    def test_summary_builds_matched_rl_scorecard(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = []
+            for seed in range(20):
+                for policy in ("open_loop", "closed_loop", "rl"):
+                    run = root / f"seed{seed}-{policy}"
+                    run.mkdir()
+                    complete = policy == "rl" or (policy == "closed_loop" and seed < 10)
+                    report = run / "execution_report.json"
+                    report.write_text(
+                        json.dumps(
+                            {
+                                "policy": policy,
+                                "task_complete": complete,
+                                "verified_pickups": 6 if complete else 3,
+                                "verified_placements": 6 if complete else 3,
+                                "picks": [],
+                                "abort_reason": None if complete else "tower stopped",
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    paths.append(report)
+            summary = MODULE.summarize(paths)
+
+        self.assertEqual(summary["aggregate"]["rl"]["completion_rate"], 1.0)
+        self.assertEqual(summary["aggregate"]["rl"]["completion_rate_95ci"][1], 1.0)
+        self.assertEqual(summary["paired_rl_comparison"]["rl_vs_open_loop"]["wins"], 20)
+        self.assertEqual(summary["acceptance"]["status"], "pass")
+
+    def test_writes_csv_and_svg_without_plotting_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows = [{"seed": 1, "policy": "rl", "task_complete": True}]
+            MODULE.write_metrics_csv(rows, root / "metrics.csv")
+            MODULE.write_comparison_svg(
+                {"rl": {"completion_rate": 1.0, "runs": 1, "completions": 1}},
+                root / "chart.svg",
+            )
+            self.assertIn("seed,policy", (root / "metrics.csv").read_text())
+            self.assertIn("100.0% (1/1)", (root / "chart.svg").read_text())
 
 
 if __name__ == "__main__":

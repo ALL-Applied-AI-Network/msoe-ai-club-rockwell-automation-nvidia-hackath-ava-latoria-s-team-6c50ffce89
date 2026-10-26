@@ -93,6 +93,15 @@ one simulation process and evaluates open-loop, deterministic closed-loop, and
 RL on identical seeds and hidden placement offsets. Results go to
 `results/rl_isaac_comparison/summary.json`.
 
+The comparison also writes `trial_metrics.csv` and `completion_rate.svg`. The
+RL scorecard includes full-tower completion with a 95% confidence interval,
+verified placements, retries, abort reasons, visual safety stops, and matched
+seed wins/losses/ties against both baselines. It stays
+`insufficient_evidence` until all policies have at least 20 trials, and the RL
+acceptance gate requires at least 18 complete six-cube towers out of 20. The
+small Q-learning environment's reward and success rate are training diagnostics
+only; the matched Isaac comparison is the decision metric.
+
 The RL path is visually guarded. After lift, the Siamese classifier checks the
 table-camera before/after pair. A high-confidence `GOOD` may proceed; a
 borderline result gets one second look; a predicted failure, invalid crop, or

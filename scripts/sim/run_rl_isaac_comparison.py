@@ -4,15 +4,38 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
+import re
 import shutil
 import sys
+from collections import Counter
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
+
+
+def wilson_interval(successes: int, total: int, z: float = 1.959964) -> list[float] | None:
+    """Return a 95% Wilson interval without requiring scipy."""
+    if total < 1:
+        return None
+    p = successes / total
+    denominator = 1.0 + z * z / total
+    centre = p + z * z / (2.0 * total)
+    margin = z * math.sqrt((p * (1.0 - p) + z * z / (4.0 * total)) / total)
+    return [max(0.0, (centre - margin) / denominator), min(1.0, (centre + margin) / denominator)]
+
+
+def trial_seed(path: Path, report: dict[str, object]) -> int | None:
+    """Read a comparison seed from the report or its seedNNN-policy folder."""
+    raw = report.get("comparison_seed")
+    if raw is not None:
+        return int(raw)
+    match = re.search(r"seed(\d+)-", str(path))
+    return int(match.group(1)) if match else None
 
 
 def build_jobs(seeds: list[int], offset_m: float) -> list[dict[str, object]]:
@@ -42,9 +65,12 @@ def summarize(report_paths: list[Path]) -> dict[str, object]:
         rows.append(
             {
                 "policy": report.get("policy"),
+                "seed": trial_seed(path, report),
                 "task_complete": bool(report.get("task_complete")),
                 "verified_pickups": int(report.get("verified_pickups", 0)),
                 "verified_placements": int(report.get("verified_placements", 0)),
+                "full_tower_complete": bool(report.get("task_complete"))
+                and int(report.get("verified_placements", 0)) >= 6,
                 "grasp_retries": sum(
                     int(p.get("closed_loop_grasp_attempts", 0)) for p in picks
                 ),
@@ -66,27 +92,118 @@ def summarize(report_paths: list[Path]) -> dict[str, object]:
             }
         )
     policies = sorted({str(row["policy"]) for row in rows})
-    aggregate = {
-        policy: {
-            "runs": sum(row["policy"] == policy for row in rows),
-            "completion_rate": (
-                sum(row["policy"] == policy and row["task_complete"] for row in rows)
-                / max(1, sum(row["policy"] == policy for row in rows))
-            ),
-            "verified_placements": sum(
-                int(row["verified_placements"])
-                for row in rows
-                if row["policy"] == policy
-            ),
-            "visual_gate_stops": sum(
-                int(row["visual_gate_stops"])
-                for row in rows
-                if row["policy"] == policy
-            ),
+    aggregate: dict[str, dict[str, object]] = {}
+    for policy in policies:
+        selected = [row for row in rows if row["policy"] == policy]
+        runs = len(selected)
+        completions = sum(bool(row["full_tower_complete"]) for row in selected)
+        placements = sum(int(row["verified_placements"]) for row in selected)
+        aborts = Counter(str(row["abort_reason"] or "none") for row in selected)
+        aggregate[policy] = {
+            "runs": runs,
+            "completions": completions,
+            "completion_rate": completions / runs if runs else None,
+            "completion_rate_95ci": wilson_interval(completions, runs),
+            "verified_placements": placements,
+            "mean_verified_placements": placements / runs if runs else None,
+            "grasp_retries": sum(int(row["grasp_retries"]) for row in selected),
+            "placement_retries": sum(int(row["placement_retries"]) for row in selected),
+            "visual_gate_proceeds": sum(int(row["visual_gate_proceeds"]) for row in selected),
+            "visual_gate_stops": sum(int(row["visual_gate_stops"]) for row in selected),
+            "abort_reasons": dict(sorted(aborts.items())),
         }
-        for policy in policies
+
+    by_seed: dict[int, dict[str, dict[str, object]]] = {}
+    for row in rows:
+        if row["seed"] is not None:
+            by_seed.setdefault(int(row["seed"]), {})[str(row["policy"])] = row
+    paired: dict[str, dict[str, int]] = {}
+    for opponent in ("open_loop", "closed_loop"):
+        score = {"wins": 0, "losses": 0, "ties": 0, "matched_seeds": 0}
+        for seed_rows in by_seed.values():
+            if "rl" not in seed_rows or opponent not in seed_rows:
+                continue
+            score["matched_seeds"] += 1
+            rl = seed_rows["rl"]
+            other = seed_rows[opponent]
+            rl_score = (bool(rl["full_tower_complete"]), int(rl["verified_placements"]))
+            other_score = (bool(other["full_tower_complete"]), int(other["verified_placements"]))
+            if rl_score > other_score:
+                score["wins"] += 1
+            elif rl_score < other_score:
+                score["losses"] += 1
+            else:
+                score["ties"] += 1
+        paired[f"rl_vs_{opponent}"] = score
+
+    rl_stats = aggregate.get("rl", {})
+    expected_policies = ("open_loop", "closed_loop", "rl")
+    enough_runs = all(
+        int(aggregate.get(policy, {}).get("runs", 0)) >= 20
+        for policy in expected_policies
+    )
+    rl_completions = int(rl_stats.get("completions", 0))
+    acceptance = {
+        "status": (
+            "pass"
+            if enough_runs and rl_completions >= 18
+            else "fail" if enough_runs else "insufficient_evidence"
+        ),
+        "requires": "20 matched full six-cube trials per policy and at least 18/20 RL completions",
+        "has_20_runs_per_policy": enough_runs,
+        "rl_has_at_least_18_completions": rl_completions >= 18,
+        "note": "This is the digital-twin gate; lightweight Q-learning metrics are diagnostic only.",
     }
-    return {"aggregate": aggregate, "runs": rows}
+    return {
+        "scope": "matched full-tower Isaac Sim evaluation",
+        "aggregate": aggregate,
+        "paired_rl_comparison": paired,
+        "acceptance": acceptance,
+        "runs": rows,
+    }
+
+
+def write_metrics_csv(rows: list[dict[str, object]], path: Path) -> None:
+    fields = [
+        "seed", "policy", "task_complete", "full_tower_complete", "verified_pickups",
+        "verified_placements", "grasp_retries", "placement_retries",
+        "visual_gate_proceeds", "visual_gate_stops", "abort_reason", "report",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def write_comparison_svg(aggregate: dict[str, dict[str, object]], path: Path) -> None:
+    """Write a dependency-free completion-rate chart for reports/slides."""
+    labels = [p for p in ("open_loop", "closed_loop", "rl") if p in aggregate]
+    width, height = 720, 430
+    left, top, plot_h = 90, 50, 280
+    bar_w, gap = 120, 70
+    colours = {"open_loop": "#9ca3af", "closed_loop": "#3b82f6", "rl": "#22c55e"}
+    elements = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="white"/>',
+        '<text x="360" y="28" text-anchor="middle" font-family="sans-serif" font-size="20">Matched Isaac full-tower completion</text>',
+    ]
+    for tick in range(0, 101, 20):
+        y = top + plot_h - plot_h * tick / 100
+        elements.append(f'<line x1="{left}" y1="{y:.1f}" x2="680" y2="{y:.1f}" stroke="#e5e7eb"/>')
+        elements.append(f'<text x="78" y="{y + 5:.1f}" text-anchor="end" font-family="sans-serif" font-size="12">{tick}%</text>')
+    for index, label in enumerate(labels):
+        rate = float(aggregate[label].get("completion_rate") or 0.0)
+        runs = int(aggregate[label].get("runs", 0))
+        completions = int(aggregate[label].get("completions", 0))
+        x = left + 65 + index * (bar_w + gap)
+        bar_h = plot_h * rate
+        y = top + plot_h - bar_h
+        elements.append(f'<rect x="{x}" y="{y:.1f}" width="{bar_w}" height="{bar_h:.1f}" fill="{colours[label]}" rx="4"/>')
+        elements.append(f'<text x="{x + bar_w / 2}" y="{max(45, y - 8):.1f}" text-anchor="middle" font-family="sans-serif" font-size="14">{rate:.1%} ({completions}/{runs})</text>')
+        elements.append(f'<text x="{x + bar_w / 2}" y="355" text-anchor="middle" font-family="sans-serif" font-size="14">{label.replace("_", " ")}</text>')
+    elements.append('<text x="360" y="405" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#4b5563">Use 20 identical seeds per policy; lightweight training reward is not a lab-readiness metric.</text>')
+    elements.append("</svg>")
+    path.write_text("\n".join(elements) + "\n", encoding="utf-8")
 
 
 def parse_args() -> argparse.Namespace:
@@ -197,6 +314,10 @@ def main() -> int:
             source_report = run / "execution_report.json"
             destination = job_dir / "execution_report.json"
             shutil.copy2(source_report, destination)
+            copied = json.loads(destination.read_text(encoding="utf-8"))
+            copied["comparison_seed"] = seed
+            copied["comparison_policy"] = policy
+            destination.write_text(json.dumps(copied, indent=2) + "\n", encoding="utf-8")
             report_paths.append(destination)
     finally:
         app.close()
@@ -205,7 +326,10 @@ def main() -> int:
     (out / "summary.json").write_text(
         json.dumps(summary, indent=2) + "\n", encoding="utf-8"
     )
+    write_metrics_csv(summary["runs"], out / "trial_metrics.csv")
+    write_comparison_svg(summary["aggregate"], out / "completion_rate.svg")
     print(json.dumps(summary["aggregate"], indent=2))
+    print(json.dumps(summary["acceptance"], indent=2))
     return 0
 
 
