@@ -33,6 +33,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--episodes", type=int, default=50_000)
     parser.add_argument("--eval-episodes", type=int, default=1_000)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="continue training from an existing Q-table checkpoint",
+    )
     parser.add_argument("--out", type=Path, default=Path("models/rl_stacking_qtable.json"))
     parser.add_argument("--metrics", type=Path, default=Path("results/rl_stacking_metrics.json"))
     return parser.parse_args()
@@ -41,7 +47,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     env = StackingDecisionEnv(seed=args.seed)
-    agent = QLearningAgent(seed=args.seed)
+    agent = (
+        QLearningAgent.load(args.resume, seed=args.seed)
+        if args.resume is not None
+        else QLearningAgent(seed=args.seed)
+    )
     summary = agent.train(env, args.episodes)
 
     safe_policy = SafeRLStackingPolicy(agent)
@@ -64,6 +74,7 @@ def main() -> int:
         "success_rate_lift": evaluation["success_rate"] - baseline["success_rate"],
         "scope": "simulation-only high-level decisions; no direct joint control",
         "seed": args.seed,
+        "resumed_from": str(args.resume) if args.resume is not None else None,
     }
     agent.save(args.out, metadata=metrics)
     args.metrics.parent.mkdir(parents=True, exist_ok=True)

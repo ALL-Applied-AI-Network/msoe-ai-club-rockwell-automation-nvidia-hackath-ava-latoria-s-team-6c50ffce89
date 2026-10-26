@@ -47,6 +47,22 @@ For a quick check:
 python scripts/train_rl_stacking.py --episodes 2000 --eval-episodes 200
 ```
 
+To continue an existing checkpoint without replacing it:
+
+```bash
+python scripts/train_rl_stacking.py \
+  --resume models/rl_stacking_qtable.json \
+  --episodes 200000 --eval-episodes 10000 \
+  --out models/rl_stacking_candidate.json \
+  --metrics results/rl_stacking_candidate_metrics.json
+```
+
+Always compare candidates on the same evaluation seeds before selecting one.
+The current selected checkpoint remains `rl_stacking_qtable.json`: it scored
+64.55% on 10,000 fixed unseen episodes, while the 200,000-episode continuation
+scored 53.61% and was rejected. More episodes alone can make a tabular policy
+worse when its learning rate remains constant.
+
 ## How it connects to Isaac Sim
 
 `IsaacRLPlacementAdapter` converts a hidden placement offset into
