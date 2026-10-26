@@ -259,7 +259,15 @@ def run_stage(
     if physics_only:
         argv.append("--physics-only")
     else:
-        argv.extend(["--verification", "stub", "--rl-vision-config", str(vision_config)])
+        argv.extend(
+            [
+                "--verification",
+                "stub",
+                "--rl-vision-config",
+                str(vision_config),
+                "--rl-vision-observe-only",
+            ]
+        )
     argv.extend(["--rl-checkpoint", str(checkpoint)])
     sort_scene.main(argv, simulation_app=app)
     return read_json(run_dir / "execution_report.json")
@@ -288,7 +296,10 @@ def main() -> int:
 
     sort_dir = out / "01_sort"
     stack_dir = out / "02_stack"
-    prepare_sort_stage(source, sort_dir, use_rl=True)
+    # The physics gate exercises RL placement.  The rendered pass evaluates the
+    # classifier independently so an unrelated closed-loop placement retry
+    # cannot truncate the per-grab accuracy benchmark.
+    prepare_sort_stage(source, sort_dir, use_rl=args.physics_only)
 
     import sort_scene  # noqa: E402
     from isaacsim import SimulationApp  # noqa: E402
@@ -304,7 +315,7 @@ def main() -> int:
             checkpoint=args.checkpoint.resolve(),
             vision_config=args.vision_config.resolve(),
         )
-        build_stack_stage(sort_dir, stack_dir, use_rl=True)
+        build_stack_stage(sort_dir, stack_dir, use_rl=args.physics_only)
         stack_report = run_stage(
             sort_scene,
             app,

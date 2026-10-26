@@ -72,6 +72,20 @@ class TestSortThenStack(unittest.TestCase):
         self.assertEqual(summary["classifier"]["confusion"]["true_positive"], 1)
         self.assertEqual(summary["classifier"]["confusion"]["false_negative"], 1)
 
+    def test_visual_benchmark_does_not_enable_rl_placement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, destination = root / "source", root / "destination"
+            source.mkdir()
+            (source / "scene_state.json").write_text(json.dumps({"objects": {}}))
+            (source / "sort_plan.json").write_text(
+                json.dumps({"source": "Cosmos3-Nano", "picks": []})
+            )
+            MODULE.prepare_sort_stage(source, destination, use_rl=False)
+            plan = json.loads((destination / "sort_plan.json").read_text())
+
+        self.assertNotIn("closed_loop_policy", plan)
+
 
 if __name__ == "__main__":
     unittest.main()

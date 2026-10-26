@@ -265,6 +265,14 @@ def main(argv=None, *, simulation_app=None):
             "before an RL placement"
         ),
     )
+    ap.add_argument(
+        "--rl-vision-observe-only",
+        action="store_true",
+        help=(
+            "score the before/after pickup classifier without allowing its gate "
+            "to stop execution (benchmarking only)"
+        ),
+    )
     a = ap.parse_args(argv)
     if a.fps != 30:
         ap.error("Use 30 fps: two 1/60 s physics steps per video frame")
@@ -306,16 +314,16 @@ def main(argv=None, *, simulation_app=None):
         from stacking_recovery.integration.isaac_rl import IsaacRLPlacementAdapter
 
         rl_adapter = IsaacRLPlacementAdapter(Path(a.rl_checkpoint).resolve())
-        if a.rl_vision_config:
-            from stacking_recovery.vision.grasp_quality_model import (
-                GraspQualityModel,
-                load_grasp_config,
-            )
+    if a.rl_vision_config:
+        from stacking_recovery.vision.grasp_quality_model import (
+            GraspQualityModel,
+            load_grasp_config,
+        )
 
-            vision_config_path = Path(a.rl_vision_config).resolve()
-            if not vision_config_path.is_file():
-                ap.error(f"RL vision config not found: {vision_config_path}")
-            rl_visual_model = GraspQualityModel(load_grasp_config(vision_config_path))
+        vision_config_path = Path(a.rl_vision_config).resolve()
+        if not vision_config_path.is_file():
+            ap.error(f"RL vision config not found: {vision_config_path}")
+        rl_visual_model = GraspQualityModel(load_grasp_config(vision_config_path))
     for pick in plan["picks"]:
         target_xy = np.asarray(pick["place_xy"], dtype=float)
         if rl_adapter is not None:
@@ -1009,6 +1017,7 @@ def main(argv=None, *, simulation_app=None):
                                 event["rl_visual_verification"] = {
                                     "quality": pair_quality.to_dict(),
                                     "predictions": predictions,
+                                    "observe_only": bool(a.rl_vision_observe_only),
                                     "gate": visual_gate.to_dict()
                                     if visual_gate is not None
                                     else {
@@ -1018,8 +1027,12 @@ def main(argv=None, *, simulation_app=None):
                                     },
                                 }
                                 if (
-                                    visual_gate is None
-                                    or visual_gate.action == VisualGateAction.SAFE_STOP
+                                    not a.rl_vision_observe_only
+                                    and (
+                                        visual_gate is None
+                                        or visual_gate.action
+                                        == VisualGateAction.SAFE_STOP
+                                    )
                                 ):
                                     pick_abort = True
                                     abort_reason = (
