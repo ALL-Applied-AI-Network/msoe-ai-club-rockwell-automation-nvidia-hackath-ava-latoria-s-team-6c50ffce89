@@ -86,6 +86,49 @@ class TestSortThenStack(unittest.TestCase):
 
         self.assertNotIn("closed_loop_policy", plan)
 
+    def test_fast_stage_keeps_visual_classifier_and_adds_speedup(self) -> None:
+        argv = MODULE.stage_argv(
+            Path("run"),
+            Path("frames"),
+            physics_only=False,
+            fast=True,
+            checkpoint=Path("rl.json"),
+            vision_config=Path("vision.yaml"),
+        )
+
+        self.assertEqual(argv[argv.index("--sim-speedup") + 1], "1.5")
+        self.assertIn("--rl-vision-config", argv)
+        self.assertIn("--rl-vision-observe-only", argv)
+        self.assertNotIn("--physics-only", argv)
+
+    def test_live_status_is_frontend_friendly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            sort_dir = out / "01_sort"
+            sort_dir.mkdir()
+            event = {
+                "detection_id": 0,
+                "tracked_object": "SortCube0",
+                "pickup_verified": True,
+                "placement_verified": True,
+                "closed_loop_grasp_attempts": 1,
+                "rl_visual_verification": {
+                    "quality": {"valid": True, "reason": None},
+                    "predictions": [{"class": "GOOD", "confidence": 0.95}],
+                    "gate": {"action": "proceed"},
+                },
+            }
+            (sort_dir / "execution_events.json").write_text(json.dumps([event]))
+            live = MODULE.LiveStatus(out, mode="fast")
+            live.set_phase("sort")
+            payload = json.loads((out / "live_status.json").read_text())
+
+        self.assertEqual(payload["schema_version"], "1.0")
+        self.assertEqual(payload["progress"]["completed_grabs"], 1)
+        self.assertEqual(payload["current"]["predicted_class"], "GOOD")
+        self.assertEqual(payload["current"]["rl"]["grasp_retries"], 1)
+        self.assertEqual(payload["metrics"]["classifier_accuracy"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

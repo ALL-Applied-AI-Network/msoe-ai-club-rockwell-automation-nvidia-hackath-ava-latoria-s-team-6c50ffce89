@@ -201,6 +201,15 @@ def main(argv=None, *, simulation_app=None):
     )
     ap.add_argument("--out", default=None)
     ap.add_argument("--fps", type=int, default=30)
+    ap.add_argument(
+        "--sim-speedup",
+        type=float,
+        default=1.0,
+        help=(
+            "simulation-only motion playback multiplier; preserves the same "
+            "waypoints and verification gates (0.25 to 3.0)"
+        ),
+    )
     ap.add_argument("--camera", choices=["table", "side", "wrist"], default="table")
     ap.add_argument(
         "--physics-only",
@@ -276,6 +285,8 @@ def main(argv=None, *, simulation_app=None):
     a = ap.parse_args(argv)
     if a.fps != 30:
         ap.error("Use 30 fps: two 1/60 s physics steps per video frame")
+    if not 0.25 <= a.sim_speedup <= 3.0:
+        ap.error("--sim-speedup must be between 0.25 and 3.0")
     if a.collect_dataset and a.physics_only:
         ap.error("--collect-dataset needs rendering; remove --physics-only")
     run = Path(a.run).resolve()
@@ -724,7 +735,11 @@ def main(argv=None, *, simulation_app=None):
                             s /= np.linalg.norm(s)
                             spread = np.array(spread, float)
                             spread_start = s
-                        n = round(duration * a.fps)
+                        # Keep the exact same Cartesian path and all safety
+                        # checks while using fewer interpolation frames for a
+                        # faster digital-twin benchmark.  This flag is not a
+                        # real-robot speed command.
+                        n = max(2, round(duration * a.fps / a.sim_speedup))
                         for i in range(n):
                             t = ease((i + 1) / n)
                             target = p0 + (p1 - p0) * t

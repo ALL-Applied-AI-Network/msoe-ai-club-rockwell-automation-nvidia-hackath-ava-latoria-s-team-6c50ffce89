@@ -13,7 +13,10 @@ import json
 import math
 import shutil
 import sys
+import threading
+import time
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +34,151 @@ def read_json(path: Path) -> dict[str, Any]:
 
 def write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+class LiveStatus:
+    """Publish a small, atomic JSON snapshot for a React/TypeScript UI."""
+
+    def __init__(self, out: Path, *, mode: str, total_grabs: int = 12) -> None:
+        self.out = out
+        self.path = out / "live_status.json"
+        self.mode = mode
+        self.total_grabs = total_grabs
+        self.phase = "starting"
+        self.state = "running"
+        self.error: str | None = None
+        self.summary: dict[str, Any] | None = None
+        self._stop = threading.Event()
+        self._write_lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+        self._last_signature: tuple[Any, ...] | None = None
+
+    def _events(self, stage: str) -> list[dict[str, Any]]:
+        path = self.out / ("01_sort" if stage == "sort" else "02_stack") / "execution_events.json"
+        try:
+            value = read_json(path)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return []
+        return value if isinstance(value, list) else []
+
+    @staticmethod
+    def _ui_event(stage: str, index: int, event: dict[str, Any]) -> dict[str, Any]:
+        row = classifier_row(stage, index, event)
+        visual = event.get("rl_visual_verification") or {}
+        quality = visual.get("quality") or {}
+        rl = event.get("rl_placement_decision") or {}
+        return {
+            **row,
+            "camera_quality": {
+                "valid": quality.get("valid"),
+                "reason": quality.get("reason"),
+            },
+            "rl": {
+                "action": rl.get("action"),
+                "safe_stop": bool(event.get("rl_safe_stop") or rl.get("safe_stop")),
+                "grasp_retries": int(event.get("closed_loop_grasp_attempts", 0)),
+                "placement_retries": int(event.get("closed_loop_placement_attempts", 0)),
+            },
+        }
+
+    def payload(self) -> dict[str, Any]:
+        sort_events = self._events("sort")
+        stack_events = self._events("stack")
+        events = [
+            *(self._ui_event("sort", index, event) for index, event in enumerate(sort_events)),
+            *(self._ui_event("stack", index, event) for index, event in enumerate(stack_events)),
+        ]
+        scored = [event for event in events if event["classifier_correct"] is not None]
+        placed = sum(bool(event["placement_verified"]) for event in events)
+        completed = len(events)
+        return {
+            "schema_version": "1.0",
+            "run_id": self.out.name,
+            "updated_at": utc_now(),
+            "state": self.state,
+            "phase": self.phase,
+            "mode": self.mode,
+            "progress": {
+                "completed_grabs": completed,
+                "total_grabs": self.total_grabs,
+                "percent": round(100 * completed / self.total_grabs, 1),
+                "sort_completed": len(sort_events),
+                "stack_completed": len(stack_events),
+            },
+            "current": events[-1] if events else None,
+            "metrics": {
+                "successful_pickups": sum(bool(event["pickup_verified"]) for event in events),
+                "verified_placements": placed,
+                "classifier_scored": len(scored),
+                "classifier_correct": sum(event["classifier_correct"] is True for event in scored),
+                "classifier_accuracy": (
+                    sum(event["classifier_correct"] is True for event in scored) / len(scored)
+                    if scored
+                    else None
+                ),
+                "classifier_coverage": len(scored) / completed if completed else None,
+            },
+            "events": events,
+            "summary": self.summary,
+            "error": self.error,
+            "artifacts": {
+                "metrics_json": "end_to_end_metrics.json",
+                "metrics_markdown": "end_to_end_metrics.md",
+                "sort_report": "01_sort/execution_report.json",
+                "stack_report": "02_stack/execution_report.json",
+            },
+        }
+
+    def publish(self, *, force: bool = False) -> None:
+        # The monitor thread and phase transitions can publish at nearly the
+        # same instant. Serialize them so they never share the temporary file.
+        with self._write_lock:
+            payload = self.payload()
+            signature = (
+                payload["state"],
+                payload["phase"],
+                payload["progress"]["completed_grabs"],
+                payload["metrics"]["classifier_scored"],
+                self.error,
+            )
+            if force or signature != self._last_signature:
+                write_json(self.path, payload)
+                self._last_signature = signature
+
+    def start(self) -> None:
+        self.publish(force=True)
+
+        def monitor() -> None:
+            while not self._stop.wait(0.5):
+                self.publish()
+
+        self._thread = threading.Thread(target=monitor, name="live-status", daemon=True)
+        self._thread.start()
+
+    def set_phase(self, phase: str) -> None:
+        self.phase = phase
+        self.publish(force=True)
+
+    def finish(self, summary: dict[str, Any]) -> None:
+        self.summary = summary
+        self.state = "completed" if summary.get("full_process_complete") else "failed"
+        self.phase = "complete"
+        self._stop.set()
+        self.publish(force=True)
+
+    def fail(self, error: BaseException) -> None:
+        self.state = "failed"
+        self.phase = "error"
+        self.error = f"{type(error).__name__}: {error}"
+        self._stop.set()
+        self.publish(force=True)
 
 
 def prepare_sort_stage(source: Path, destination: Path, *, use_rl: bool) -> None:
@@ -245,17 +392,18 @@ def markdown(summary: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def run_stage(
-    sort_scene: Any,
-    app: Any,
+def stage_argv(
     run_dir: Path,
     frames_dir: Path,
     *,
     physics_only: bool,
+    fast: bool,
     checkpoint: Path,
     vision_config: Path,
-) -> dict[str, Any]:
+) -> list[str]:
     argv = ["--run", str(run_dir), "--out", str(frames_dir)]
+    if fast:
+        argv.extend(["--sim-speedup", "1.5"])
     if physics_only:
         argv.append("--physics-only")
     else:
@@ -269,6 +417,28 @@ def run_stage(
             ]
         )
     argv.extend(["--rl-checkpoint", str(checkpoint)])
+    return argv
+
+
+def run_stage(
+    sort_scene: Any,
+    app: Any,
+    run_dir: Path,
+    frames_dir: Path,
+    *,
+    physics_only: bool,
+    fast: bool,
+    checkpoint: Path,
+    vision_config: Path,
+) -> dict[str, Any]:
+    argv = stage_argv(
+        run_dir,
+        frames_dir,
+        physics_only=physics_only,
+        fast=fast,
+        checkpoint=checkpoint,
+        vision_config=vision_config,
+    )
     sort_scene.main(argv, simulation_app=app)
     return read_json(run_dir / "execution_report.json")
 
@@ -278,6 +448,14 @@ def main() -> int:
     parser.add_argument("--run", type=Path, required=True, help="six-cube sort run")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--physics-only", action="store_true")
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help=(
+            "run the digital-twin motion at 1.5x while preserving paths, "
+            "classifier checks, physics verification and metrics"
+        ),
+    )
     parser.add_argument("--checkpoint", type=Path, default=ROOT / "models/rl_stacking_qtable.json")
     parser.add_argument(
         "--vision-config",
@@ -296,6 +474,9 @@ def main() -> int:
 
     sort_dir = out / "01_sort"
     stack_dir = out / "02_stack"
+    mode = "physics" if args.physics_only else ("fast" if args.fast else "demo")
+    live = LiveStatus(out, mode=mode)
+    live.start()
     # The physics gate exercises RL placement.  The rendered pass evaluates the
     # classifier independently so an unrelated closed-loop placement retry
     # cannot truncate the per-grab accuracy benchmark.
@@ -306,22 +487,26 @@ def main() -> int:
 
     app = SimulationApp({"headless": True})
     try:
+        live.set_phase("sort")
         sort_report = run_stage(
             sort_scene,
             app,
             sort_dir,
             sort_dir / "frames",
             physics_only=args.physics_only,
+            fast=args.fast,
             checkpoint=args.checkpoint.resolve(),
             vision_config=args.vision_config.resolve(),
         )
         build_stack_stage(sort_dir, stack_dir, use_rl=args.physics_only)
+        live.set_phase("stack")
         stack_report = run_stage(
             sort_scene,
             app,
             stack_dir,
             stack_dir / "frames",
             physics_only=args.physics_only,
+            fast=args.fast,
             checkpoint=args.checkpoint.resolve(),
             vision_config=args.vision_config.resolve(),
         )
@@ -330,8 +515,12 @@ def main() -> int:
         summary = summarize(sort_report, stack_report)
         write_json(out / "end_to_end_metrics.json", summary)
         (out / "end_to_end_metrics.md").write_text(markdown(summary), encoding="utf-8")
+        live.finish(summary)
         print(markdown(summary), flush=True)
         exit_code = 0 if summary["full_process_complete"] else 1
+    except BaseException as error:
+        live.fail(error)
+        raise
     finally:
         app.close()
     return exit_code
