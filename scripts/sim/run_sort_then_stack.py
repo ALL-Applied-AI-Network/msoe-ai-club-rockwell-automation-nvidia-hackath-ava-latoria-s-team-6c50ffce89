@@ -314,14 +314,16 @@ def main() -> int:
             checkpoint=args.checkpoint.resolve(),
             vision_config=args.vision_config.resolve(),
         )
+        # Write the report before closing Kit.  Isaac may terminate the Python
+        # process as part of shutdown, especially in the Brev launchable.
+        summary = summarize(sort_report, stack_report)
+        write_json(out / "end_to_end_metrics.json", summary)
+        (out / "end_to_end_metrics.md").write_text(markdown(summary), encoding="utf-8")
+        print(markdown(summary), flush=True)
+        exit_code = 0 if summary["full_process_complete"] else 1
     finally:
         app.close()
-
-    summary = summarize(sort_report, stack_report)
-    write_json(out / "end_to_end_metrics.json", summary)
-    (out / "end_to_end_metrics.md").write_text(markdown(summary), encoding="utf-8")
-    print(markdown(summary))
-    return 0 if summary["full_process_complete"] else 1
+    return exit_code
 
 
 if __name__ == "__main__":
