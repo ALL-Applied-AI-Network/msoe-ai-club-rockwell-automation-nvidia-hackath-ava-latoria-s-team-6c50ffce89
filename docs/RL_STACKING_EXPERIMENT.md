@@ -84,13 +84,21 @@ After the current data collector finishes, run the actual comparison:
 ```bash
 /isaac-sim/python.sh scripts/sim/run_rl_isaac_comparison.py \
   --run /workspace/team-data/collection_20261021_ready \
-  --checkpoint models/rl_stacking_qtable.json
+  --checkpoint models/rl_stacking_qtable.json \
+  --vision-config configs/grasp_model_resnet_siamese.yaml
 ```
 
 Do not run this beside another Isaac collector on the L4. The script launches
 one simulation process and evaluates open-loop, deterministic closed-loop, and
 RL on identical seeds and hidden placement offsets. Results go to
 `results/rl_isaac_comparison/summary.json`.
+
+The RL path is visually guarded. After lift, the Siamese classifier checks the
+table-camera before/after pair. A high-confidence `GOOD` may proceed; a
+borderline result gets one second look; a predicted failure, invalid crop, or
+two-look disagreement stops before the carry-to-stack segment. The classifier
+does not command joints—RL only adjusts the XY destination, and the existing
+IK, retry limits, and placement checks remain in control.
 
 For the demo, compare the same hidden scene seeds across:
 

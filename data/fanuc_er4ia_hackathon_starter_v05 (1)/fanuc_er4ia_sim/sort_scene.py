@@ -246,6 +246,14 @@ def main(argv=None, *, simulation_app=None):
         default=None,
         help="Q-table checkpoint for simulation-only policy='rl' trials",
     )
+    ap.add_argument(
+        "--rl-vision-config",
+        default=None,
+        help=(
+            "before/after pickup-classifier config used as a fail-closed gate "
+            "before an RL placement"
+        ),
+    )
     a = ap.parse_args(argv)
     if a.fps != 30:
         ap.error("Use 30 fps: two 1/60 s physics steps per video frame")
@@ -280,12 +288,23 @@ def main(argv=None, *, simulation_app=None):
     if place_offset.shape != (2,) or not np.all(np.isfinite(place_offset)):
         raise ValueError("place_xy_offset_m must contain two finite values")
     rl_adapter = None
+    rl_visual_model = None
     if policy_mode == "rl":
         if not a.rl_checkpoint:
             ap.error("policy='rl' requires --rl-checkpoint")
         from stacking_recovery.integration.isaac_rl import IsaacRLPlacementAdapter
 
         rl_adapter = IsaacRLPlacementAdapter(Path(a.rl_checkpoint).resolve())
+        if a.rl_vision_config:
+            from stacking_recovery.vision.grasp_quality_model import (
+                GraspQualityModel,
+                load_grasp_config,
+            )
+
+            vision_config_path = Path(a.rl_vision_config).resolve()
+            if not vision_config_path.is_file():
+                ap.error(f"RL vision config not found: {vision_config_path}")
+            rl_visual_model = GraspQualityModel(load_grasp_config(vision_config_path))
     for pick in plan["picks"]:
         target_xy = np.asarray(pick["place_xy"], dtype=float)
         if rl_adapter is not None:
@@ -418,7 +437,7 @@ def main(argv=None, *, simulation_app=None):
             wrist_cam.initialize()
         table_observation_cam = None
         table_observation_model = None
-        if grasp_recorder is not None and render_enabled:
+        if (grasp_recorder is not None or rl_visual_model is not None) and render_enabled:
             if cam is not None and a.camera == "table":
                 table_observation_cam = cam
             else:
@@ -894,17 +913,107 @@ def main(argv=None, *, simulation_app=None):
                                 if lifted[key]["centre"][2] - start[key]["centre"][2] > 0.025
                             ]
                             event["pickup_verified"] = tracked in event["objects_lifted"]
+                            after_bgr = None
+                            if table_observation_cam is not None:
+                                table_rgba = table_observation_cam.get_rgba()
+                                if table_rgba is not None:
+                                    after_bgr = rgba_to_bgr(table_rgba)
                             if grasp_recorder is not None:
-                                after_bgr = None
-                                if table_observation_cam is not None:
-                                    table_rgba = table_observation_cam.get_rgba()
-                                    if table_rgba is not None:
-                                        after_bgr = rgba_to_bgr(table_rgba)
                                 saved = grasp_recorder.on_lift(
                                     event, after_image_bgr=after_bgr
                                 )
                                 if saved:
                                     event["grasp_feedback_saved"] = saved
+                            if rl_visual_model is not None:
+                                from stacking_recovery.data.table_grasp_observation import (
+                                    make_before_after_observation,
+                                )
+                                from stacking_recovery.integration.visual_rl_guard import (
+                                    VisualGateAction,
+                                    visual_pickup_gate,
+                                )
+
+                                if collection_before_bgr is None or after_bgr is None:
+                                    raise RuntimeError(
+                                        "RL visual verification requires table before/after images"
+                                    )
+                                center_uv = tuple(
+                                    collection_observation_meta["crop_center_uv"]
+                                )
+                                crop_size = int(
+                                    collection_observation_meta["crop_size_px"]
+                                )
+                                pair_bgr, pair_quality = make_before_after_observation(
+                                    collection_before_bgr,
+                                    after_bgr,
+                                    center_uv,
+                                    crop_size=crop_size,
+                                )
+                                predictions = []
+                                if pair_quality.valid:
+                                    first_prediction = rl_visual_model.predict(
+                                        pair_bgr,
+                                        observation_source="table_before_after",
+                                    )
+                                    predictions.append(first_prediction.to_dict())
+                                    visual_gate = visual_pickup_gate(first_prediction)
+                                else:
+                                    visual_gate = None
+
+                                if (
+                                    visual_gate is not None
+                                    and visual_gate.action
+                                    == VisualGateAction.SECOND_LOOK
+                                ):
+                                    for _ in range(5):
+                                        world.step(render=render_enabled)
+                                    second_rgba = table_observation_cam.get_rgba()
+                                    if second_rgba is None:
+                                        raise RuntimeError(
+                                            "Table camera returned no second-look image"
+                                        )
+                                    second_bgr = rgba_to_bgr(second_rgba)
+                                    second_pair, second_quality = (
+                                        make_before_after_observation(
+                                            collection_before_bgr,
+                                            second_bgr,
+                                            center_uv,
+                                            crop_size=crop_size,
+                                        )
+                                    )
+                                    if second_quality.valid:
+                                        second_prediction = rl_visual_model.predict(
+                                            second_pair,
+                                            observation_source="table_before_after",
+                                        )
+                                        predictions.append(second_prediction.to_dict())
+                                        visual_gate = visual_pickup_gate(
+                                            first_prediction, second_prediction
+                                        )
+                                    else:
+                                        pair_quality = second_quality
+                                        visual_gate = None
+
+                                event["rl_visual_verification"] = {
+                                    "quality": pair_quality.to_dict(),
+                                    "predictions": predictions,
+                                    "gate": visual_gate.to_dict()
+                                    if visual_gate is not None
+                                    else {
+                                        "action": "safe_stop",
+                                        "reason": pair_quality.reason
+                                        or "invalid_second_look",
+                                    },
+                                }
+                                if (
+                                    visual_gate is None
+                                    or visual_gate.action == VisualGateAction.SAFE_STOP
+                                ):
+                                    pick_abort = True
+                                    abort_reason = (
+                                        "RL visual safety gate rejected pickup at "
+                                        f"level {pick.get('stack_level')}"
+                                    )
                             print(
                                 f'[sort] detection {pick["detection_id"]}: lifted {event["objects_lifted"]}; pickup={event["pickup_verified"]}',
                                 flush=True,

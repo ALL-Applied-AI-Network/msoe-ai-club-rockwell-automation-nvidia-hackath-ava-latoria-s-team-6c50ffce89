@@ -51,6 +51,16 @@ def summarize(report_paths: list[Path]) -> dict[str, object]:
                 "placement_retries": sum(
                     int(p.get("closed_loop_placement_attempts", 0)) for p in picks
                 ),
+                "visual_gate_proceeds": sum(
+                    (p.get("rl_visual_verification") or {}).get("gate", {}).get("action")
+                    == "proceed"
+                    for p in picks
+                ),
+                "visual_gate_stops": sum(
+                    (p.get("rl_visual_verification") or {}).get("gate", {}).get("action")
+                    == "safe_stop"
+                    for p in picks
+                ),
                 "abort_reason": report.get("abort_reason"),
                 "report": str(path),
             }
@@ -68,6 +78,11 @@ def summarize(report_paths: list[Path]) -> dict[str, object]:
                 for row in rows
                 if row["policy"] == policy
             ),
+            "visual_gate_stops": sum(
+                int(row["visual_gate_stops"])
+                for row in rows
+                if row["policy"] == policy
+            ),
         }
         for policy in policies
     }
@@ -81,9 +96,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint", type=Path, default=Path("models/rl_stacking_qtable.json")
     )
+    parser.add_argument(
+        "--vision-config",
+        type=Path,
+        default=Path("configs/grasp_model_resnet_siamese.yaml"),
+        help="pickup classifier used to gate RL placements",
+    )
     parser.add_argument("--seeds", type=int, nargs="+", default=[310, 311, 312, 313, 314])
     parser.add_argument("--offset-m", type=float, default=0.008)
-    parser.add_argument("--max-picks", type=int, default=3)
+    parser.add_argument(
+        "--max-picks",
+        type=int,
+        default=6,
+        help="picks per run; six is a complete hackathon tower",
+    )
     parser.add_argument(
         "--prepare-only",
         action="store_true",
@@ -97,10 +123,13 @@ def main() -> int:
     run = args.run.resolve()
     out = args.out.resolve()
     checkpoint = args.checkpoint.resolve()
+    vision_config = args.vision_config.resolve()
     if not (run / "sort_plan.json").is_file() or not (run / "scene_state.json").is_file():
         raise SystemExit("--run must contain sort_plan.json and scene_state.json")
     if not checkpoint.is_file():
         raise SystemExit(f"missing RL checkpoint: {checkpoint}")
+    if not vision_config.is_file():
+        raise SystemExit(f"missing RL vision config: {vision_config}")
 
     trials_dir = out / "trials"
     trials_dir.mkdir(parents=True, exist_ok=True)
@@ -118,6 +147,18 @@ def main() -> int:
     print(f"Prepared {len(prepared)} matched Isaac trials in {trials_dir}")
     if args.prepare_only:
         return 0
+
+    from stacking_recovery.vision.grasp_quality_model import (
+        GraspQualityModel,
+        load_grasp_config,
+    )
+
+    configured_model = GraspQualityModel(load_grasp_config(vision_config)).model_path
+    if not configured_model.is_file() or configured_model.stat().st_size < 1_000_000:
+        raise SystemExit(
+            f"classifier weights are missing or still an LFS pointer: {configured_model}; "
+            "run 'git lfs pull' before starting Isaac"
+        )
 
     sim_dir = ROOT / "data" / "fanuc_er4ia_hackathon_starter_v05 (1)" / "fanuc_er4ia_sim"
     sys.path.insert(0, str(sim_dir))
@@ -144,7 +185,14 @@ def main() -> int:
                 str(args.max_picks),
             ]
             if policy == "rl":
-                argv.extend(["--rl-checkpoint", str(checkpoint)])
+                argv.extend(
+                    [
+                        "--rl-checkpoint",
+                        str(checkpoint),
+                        "--rl-vision-config",
+                        str(vision_config),
+                    ]
+                )
             sort_scene.main(argv, simulation_app=app)
             source_report = run / "execution_report.json"
             destination = job_dir / "execution_report.json"
