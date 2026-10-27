@@ -259,6 +259,51 @@ class TestRemoteCellPolicy(unittest.TestCase):
                 else:
                     os.environ[name] = value
 
+    def test_repeated_chunk_uses_last_target_without_z_bounce(self):
+        original = {name: os.environ.get(name) for name in POLICY.FIXED_TARGET_ENV.values()}
+        try:
+            for name in POLICY.FIXED_TARGET_ENV.values():
+                os.environ.pop(name, None)
+            policy = POLICY.Policy()
+            policy._calibration_error = None
+            policy._cams = {"table": {"size": (640, 360)}}
+
+            def fake_pixel_to_base(_camera, uv):
+                return (
+                    np.array([0.42, -0.10, 0.0])
+                    if uv[0] < 300
+                    else np.array([0.50, 0.10, 0.0])
+                )
+
+            policy._pixel_to_base = fake_pixel_to_base
+            table = np.zeros((360, 640, 3), dtype=np.uint8)
+            table[100:112, 200:212] = (230, 20, 20)
+            table[200:212, 400:412] = (20, 30, 230)
+            obs = {
+                "images": {"table": table, "wrist": np.zeros_like(table)},
+                "tcp_pose": [300, 0, -90, -180, 0, 0],
+                "joints": [0, 0, 0, 0, 0, 0, 0],
+            }
+
+            first = np.asarray(policy.act(obs), dtype=float).reshape(-1, 7)
+            self.assertEqual(policy.phase, "descend_pick")
+            # Simulate the physical observation lagging midway through the
+            # first chunk.  The follow-up must repeat the prior endpoint, not
+            # interpolate backward from this stale pose.
+            obs["tcp_pose"] = [380, -60, -180, -180, 0, 0]
+            follow_up = np.asarray(policy.act(obs), dtype=float).reshape(-1, 7)
+
+            self.assertEqual(policy.phase, "descend_pick")
+            self.assertEqual(len(follow_up), 1)
+            np.testing.assert_allclose(follow_up[0], first[-1])
+            self.assertEqual(follow_up[0, 2], POLICY.SAFE_Z_MM)
+        finally:
+            for name, value in original.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
 
 if __name__ == "__main__":
     unittest.main()

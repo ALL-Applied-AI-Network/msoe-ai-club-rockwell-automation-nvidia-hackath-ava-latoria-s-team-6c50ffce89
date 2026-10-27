@@ -237,6 +237,7 @@ class Policy:
         self._last_wrist_red_visible = False
         self._red_seen_at_pick_target = False
         self._pick_verification_source: str | None = None
+        self._last_commanded_target: list[float] | None = None
         self.phase = "locate"
         self.red_xy_mm: tuple[float, float] | None = None
         self.blue_xy_mm: tuple[float, float] | None = None
@@ -260,6 +261,25 @@ class Policy:
         if current is None or not tcp_is_safe([*current, float(closed)]):
             return [450.0, 0.0, SAFE_Z_MM, -180.0, 0.0, 0.0, float(closed)]
         return [*current, float(closed)]
+
+    def _target_reached(
+        self,
+        obs: dict,
+        target: list[float],
+        *,
+        position_tolerance_mm: float = 2.0,
+    ) -> bool:
+        current = self._current_pose(obs)
+        if current is None:
+            return False
+        return math.dist(current[:3], target[:3]) <= position_tolerance_mm
+
+    @staticmethod
+    def _gripper_reached(obs: dict, *, closed: bool) -> bool:
+        joints = np.asarray(obs.get("joints", []), dtype=float).reshape(-1)
+        if not joints.size or not np.isfinite(joints[-1]):
+            return False
+        return bool(joints[-1] >= 0.5) == closed
 
     def _table_xy(
         self,
@@ -361,7 +381,23 @@ class Policy:
         return None
 
     def _move(self, obs: dict, target: list[float]) -> list[list[float]]:
-        return interpolate_tcp(self._current_pose(obs), target)
+        # The physical observation trails the queued command.  Replanning each
+        # chunk from that delayed pose made the arm pull back toward an older Z
+        # value every time the client asked for more actions.  Continue from
+        # the last commanded endpoint instead so consecutive chunks remain
+        # monotonic, then use _target_reached() to gate the next phase.
+        start = (
+            self._last_commanded_target[:6]
+            if self._last_commanded_target is not None
+            else self._current_pose(obs)
+        )
+        rows = interpolate_tcp(start, target)
+        self._last_commanded_target = list(rows[-1])
+        return rows
+
+    def _repeat_target(self, target: list[float], count: int) -> list[list[float]]:
+        self._last_commanded_target = list(target)
+        return [list(target) for _ in range(count)]
 
     @staticmethod
     def _numeric_list(value) -> list[float] | None:
@@ -515,15 +551,34 @@ class Policy:
             return self._fail(obs, "object positions were not initialized")
 
         if self.phase == "descend_pick":
+            above_pick = self._target(self.red_xy_mm, SAFE_Z_MM, 0.0)
+            if not self._target_reached(obs, above_pick):
+                return self._move(obs, above_pick)
             self.phase = "close"
             return self._move(obs, self._target(self.red_xy_mm, PICK_Z_MM, 0.0))
         if self.phase == "close":
+            pick_open = self._target(self.red_xy_mm, PICK_Z_MM, 0.0)
+            if not self._target_reached(obs, pick_open):
+                return self._move(obs, pick_open)
             self.phase = "lift"
-            return [self._target(self.red_xy_mm, PICK_Z_MM, 1.0)] * 5
+            return self._repeat_target(
+                self._target(self.red_xy_mm, PICK_Z_MM, 1.0),
+                5,
+            )
         if self.phase == "lift":
+            pick_closed = self._target(self.red_xy_mm, PICK_Z_MM, 1.0)
+            if not self._target_reached(obs, pick_closed) or not self._gripper_reached(
+                obs, closed=True
+            ):
+                return self._move(obs, pick_closed)
             self.phase = "verify_pick"
             return self._move(obs, self._target(self.red_xy_mm, SAFE_Z_MM, 1.0))
         if self.phase == "verify_pick":
+            lifted = self._target(self.red_xy_mm, SAFE_Z_MM, 1.0)
+            if not self._target_reached(obs, lifted) or not self._gripper_reached(
+                obs, closed=True
+            ):
+                return self._move(obs, lifted)
             seen = self._table_xy(table, "red", allow_operator_fallback=False)
             wrist_has_red = color_center(obs.get("images", {}).get("wrist", np.zeros((1, 1, 3), np.uint8)), "red") is not None
             self._last_wrist_red_visible = bool(wrist_has_red)
@@ -550,15 +605,32 @@ class Policy:
             self.phase = "descend_place"
             return self._move(obs, self._target(self.blue_xy_mm, SAFE_Z_MM, 1.0))
         if self.phase == "descend_place":
+            above_place = self._target(self.blue_xy_mm, SAFE_Z_MM, 1.0)
+            if not self._target_reached(obs, above_place):
+                return self._move(obs, above_place)
             self.phase = "release"
             return self._move(obs, self._target(self.blue_xy_mm, PLACE_Z_MM, 1.0))
         if self.phase == "release":
+            place_closed = self._target(self.blue_xy_mm, PLACE_Z_MM, 1.0)
+            if not self._target_reached(obs, place_closed):
+                return self._move(obs, place_closed)
             self.phase = "retreat"
-            return [self._target(self.blue_xy_mm, PLACE_Z_MM, 0.0)] * 5
+            return self._repeat_target(
+                self._target(self.blue_xy_mm, PLACE_Z_MM, 0.0),
+                5,
+            )
         if self.phase == "retreat":
+            place_open = self._target(self.blue_xy_mm, PLACE_Z_MM, 0.0)
+            if not self._target_reached(obs, place_open) or not self._gripper_reached(
+                obs, closed=False
+            ):
+                return self._move(obs, place_open)
             self.phase = "verify_place"
             return self._move(obs, self._target(self.blue_xy_mm, SAFE_Z_MM, 0.0))
         if self.phase == "verify_place":
+            retreated = self._target(self.blue_xy_mm, SAFE_Z_MM, 0.0)
+            if not self._target_reached(obs, retreated):
+                return self._move(obs, retreated)
             seen = self._table_xy(table, "red", allow_operator_fallback=False)
             if seen is None or math.dist(seen, self.blue_xy_mm) > 18.0:
                 if self._operator_fallback_active:
