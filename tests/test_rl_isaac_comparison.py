@@ -13,6 +13,25 @@ SPEC.loader.exec_module(MODULE)
 
 
 class TestRLIsaacComparison(unittest.TestCase):
+    def test_stack_plan_validation_rejects_sort_only_plan(self) -> None:
+        with self.assertRaisesRegex(ValueError, "stack-ready cube_stack"):
+            MODULE.validate_stack_plan(
+                {
+                    "task": "sort_cubes_by_color",
+                    "stack_ready": False,
+                    "picks": [{"stack_level": None}] * 6,
+                }
+            )
+
+    def test_stack_plan_validation_accepts_complete_tower(self) -> None:
+        MODULE.validate_stack_plan(
+            {
+                "task": "cube_stack",
+                "stack_ready": True,
+                "picks": [{"stack_level": level} for level in range(6)],
+            }
+        )
+
     def test_jobs_use_identical_offset_for_all_policies(self) -> None:
         jobs = MODULE.build_jobs([17], 0.008)
         self.assertEqual([job["policy"] for job in jobs], ["open_loop", "closed_loop", "rl"])
@@ -26,6 +45,7 @@ class TestRLIsaacComparison(unittest.TestCase):
                 json.dumps(
                     {
                         "policy": "rl",
+                        "task": "cube_stack",
                         "task_complete": False,
                         "verified_pickups": 1,
                         "verified_placements": 0,
@@ -58,6 +78,7 @@ class TestRLIsaacComparison(unittest.TestCase):
                         json.dumps(
                             {
                                 "policy": policy,
+                                "task": "cube_stack",
                                 "task_complete": complete,
                                 "verified_pickups": 6 if complete else 3,
                                 "verified_placements": 6 if complete else 3,
@@ -74,6 +95,25 @@ class TestRLIsaacComparison(unittest.TestCase):
         self.assertEqual(summary["aggregate"]["rl"]["completion_rate_95ci"][1], 1.0)
         self.assertEqual(summary["paired_rl_comparison"]["rl_vs_open_loop"]["wins"], 20)
         self.assertEqual(summary["acceptance"]["status"], "pass")
+
+    def test_sort_report_cannot_count_as_full_tower(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "execution_report.json"
+            report.write_text(
+                json.dumps(
+                    {
+                        "policy": "rl",
+                        "task": "sort_cubes_by_color",
+                        "task_complete": True,
+                        "verified_pickups": 6,
+                        "verified_placements": 6,
+                        "picks": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            summary = MODULE.summarize([report])
+        self.assertFalse(summary["runs"][0]["full_tower_complete"])
 
     def test_writes_csv_and_svg_without_plotting_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

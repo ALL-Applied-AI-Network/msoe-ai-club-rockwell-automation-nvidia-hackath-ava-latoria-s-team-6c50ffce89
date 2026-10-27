@@ -57,6 +57,23 @@ def build_jobs(seeds: list[int], offset_m: float) -> list[dict[str, object]]:
     return jobs
 
 
+def validate_stack_plan(plan: dict[str, object]) -> None:
+    """Reject sort-only plans before an expensive Isaac comparison starts."""
+
+    if plan.get("task") != "cube_stack" or plan.get("stack_ready") is not True:
+        raise ValueError(
+            "--run must be a stack-ready cube_stack plan, not a sorting plan"
+        )
+    picks = plan.get("picks")
+    if not isinstance(picks, list) or len(picks) < 6:
+        raise ValueError("--run must contain all six tower picks")
+    levels = [pick.get("stack_level") for pick in picks if isinstance(pick, dict)]
+    if sorted(levels) != list(range(6)):
+        raise ValueError(
+            "--run must contain exactly one stack level from 0 through 5"
+        )
+
+
 def summarize(report_paths: list[Path]) -> dict[str, object]:
     rows: list[dict[str, object]] = []
     for path in report_paths:
@@ -66,10 +83,12 @@ def summarize(report_paths: list[Path]) -> dict[str, object]:
             {
                 "policy": report.get("policy"),
                 "seed": trial_seed(path, report),
+                "task": report.get("task"),
                 "task_complete": bool(report.get("task_complete")),
                 "verified_pickups": int(report.get("verified_pickups", 0)),
                 "verified_placements": int(report.get("verified_placements", 0)),
-                "full_tower_complete": bool(report.get("task_complete"))
+                "full_tower_complete": report.get("task") == "cube_stack"
+                and bool(report.get("task_complete"))
                 and int(report.get("verified_placements", 0)) >= 6,
                 "grasp_retries": sum(
                     int(p.get("closed_loop_grasp_attempts", 0)) for p in picks
@@ -243,6 +262,12 @@ def main() -> int:
     vision_config = args.vision_config.resolve()
     if not (run / "sort_plan.json").is_file() or not (run / "scene_state.json").is_file():
         raise SystemExit("--run must contain sort_plan.json and scene_state.json")
+    try:
+        validate_stack_plan(
+            json.loads((run / "sort_plan.json").read_text(encoding="utf-8"))
+        )
+    except (ValueError, json.JSONDecodeError) as error:
+        raise SystemExit(str(error)) from error
     if not checkpoint.is_file():
         raise SystemExit(f"missing RL checkpoint: {checkpoint}")
     if not vision_config.is_file():
