@@ -17,6 +17,51 @@ Poll the file every 500–1000 ms. Treat `state` as the top-level UI state and
 `current` as the card for the latest grasp. Show `NO SCORE` when
 `current.camera_quality.valid` is false; do not display that as a good grasp.
 
+## Read-only dashboard API
+
+Browsers cannot safely poll a file inside the Brev workspace directly. Start
+the dependency-free API bridge against the exact output folder being shown:
+
+```bash
+python scripts/serve_dashboard_api.py \
+  --run /workspace/team-data/e2e/sort-stack-fast-01 \
+  --host 0.0.0.0 \
+  --port 8765 \
+  --allow-origin http://localhost:5173
+```
+
+Use `127.0.0.1` instead of `0.0.0.0` when the frontend runs on the same machine.
+On Brev, expose port `8765` through an authenticated HTTP port and add that
+dashboard's exact `https://...gobrev.dev` origin with another `--allow-origin`.
+Do not use `*` for a public dashboard.
+
+Because Brev's authenticated HTTP port uses a Pomerium session cookie, browser
+requests from the React app must opt in to credentials:
+
+```ts
+const response = await fetch(`${apiBase}/api/status`, {
+  credentials: "include",
+});
+```
+
+The API returns credentialed CORS headers only for the exact origins supplied
+with `--allow-origin`; it never combines credentials with a wildcard origin.
+
+Endpoints:
+
+- `GET /health`
+- `GET /api/status`
+- `GET /api/events?stage=all|sort|stack`
+- `GET /api/metrics`
+- `GET /api/artifacts`
+- `GET /api/latest-frame?stage=sort|stack&camera=main|side`
+- `GET /artifacts/<run-relative-path>`
+- `GET /media/<run-relative-video-or-image>`
+
+The bridge is read-only, blocks path traversal, supports video byte ranges, and
+never starts, stops, or commands the robot. JSON responses use `no-store` so a
+frontend can poll without seeing stale status.
+
 The easiest hackathon frontend is React + TypeScript + Vite. Use the exported
 types in `liveStatus.ts`. Recorded MP4 playback can be embedded directly. The
 authenticated Brev WebRTC viewer should initially be an **Open live twin** link
@@ -33,3 +78,16 @@ Fast simulator run:
 
 `--fast` changes only digital-twin interpolation speed. It does not configure
 or authorize a real FANUC speed override.
+
+Final integrated demo (rendered classifier gate + bounded state-machine
+recovery + RL placement correction):
+
+```bash
+/isaac-sim/python.sh scripts/sim/run_sort_then_stack.py \
+  --run /workspace/team-data/grasp-sort-live/sort_baseline_full_02 \
+  --out /workspace/team-data/e2e/sort-stack-integrated-01 \
+  --integrated-demo
+```
+
+In live status, `current.rl.action` is the latest action for a simple status
+card and `current.rl.actions` is the complete bounded policy trace.

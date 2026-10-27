@@ -49,6 +49,47 @@ Closed-loop sim (Isaac/Cosmos): see [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
 
 Starter sim: `data/fanuc_er4ia_hackathon_starter_v05 (1)/fanuc_er4ia_sim/`
 
+## Integrated sort-and-stack demo
+
+The `ava-rl` branch can run the classifier safety gate, bounded state-machine
+recovery, and RL placement adjustment together in the rendered digital twin.
+Start with the fail-closed checks so a missing Git LFS model cannot silently
+turn into a broken demo:
+
+```bash
+git lfs pull
+python scripts/preflight_demo.py \
+  --run /workspace/team-data/grasp-sort-live/sort_baseline_full_02
+```
+
+Run the complete visible demonstration in Isaac Sim:
+
+```bash
+/isaac-sim/python.sh scripts/sim/run_sort_then_stack.py \
+  --run /workspace/team-data/grasp-sort-live/sort_baseline_full_02 \
+  --out /workspace/team-data/e2e/sort-stack-integrated-01 \
+  --integrated-demo \
+  --placement-config configs/placement_verification.json
+```
+
+The output contains live status, per-grab classifier results, state-machine
+events, RL actions, metrics, and rendered frames. A React/TypeScript dashboard
+can read those artifacts (and an MP4 when one has been recorded into the run
+folder) through the read-only API:
+
+```bash
+python scripts/serve_dashboard_api.py \
+  --run /workspace/team-data/e2e/sort-stack-integrated-01 \
+  --host 0.0.0.0 \
+  --allow-origin http://localhost:5173
+```
+
+See [the frontend contract](docs/frontend/LIVE_STATUS.md), [the one-day lab
+plan](docs/LAB_ONE_DAY_READINESS.md), [the release-freeze
+gate](docs/DEMO_RELEASE.md), and [the hardware boundary](hardware/README.md).
+The checked-in hardware adapter is shadow-only: it can produce an auditable
+command transcript but cannot connect to or move the FANUC robot.
+
 ## First week
 
 - [ ] Everyone on the team has an ALL AI Network account and has joined this team in the [workspace](https://dashboard.all-ai-network.org/j/L36HEH).

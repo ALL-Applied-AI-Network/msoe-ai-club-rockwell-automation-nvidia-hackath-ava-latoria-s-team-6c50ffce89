@@ -22,7 +22,12 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
+SRC_DIR = ROOT / "src"
 SIM_DIR = ROOT / "data" / "fanuc_er4ia_hackathon_starter_v05 (1)" / "fanuc_er4ia_sim"
+# Isaac's bundled Python does not necessarily have this repository installed
+# as an editable package.  Make both the application package and simulator
+# helpers importable before integrated-demo preflight runs.
+sys.path.insert(0, str(SRC_DIR))
 sys.path.insert(0, str(SIM_DIR))
 
 import scene_config as C  # noqa: E402
@@ -74,6 +79,14 @@ class LiveStatus:
         visual = event.get("rl_visual_verification") or {}
         quality = visual.get("quality") or {}
         rl = event.get("rl_placement_decision") or {}
+        raw_actions = rl.get("actions") or []
+        if isinstance(raw_actions, str):
+            actions = [raw_actions]
+        elif isinstance(raw_actions, (list, tuple)):
+            actions = [str(action) for action in raw_actions]
+        else:
+            actions = []
+        latest_action = rl.get("action") or (actions[-1] if actions else None)
         return {
             **row,
             "camera_quality": {
@@ -81,7 +94,11 @@ class LiveStatus:
                 "reason": quality.get("reason"),
             },
             "rl": {
-                "action": rl.get("action"),
+                # Keep the singular field for the existing dashboard while
+                # also publishing the complete policy trace emitted by the
+                # placement adapter.
+                "action": latest_action,
+                "actions": actions,
                 "safe_stop": bool(event.get("rl_safe_stop") or rl.get("safe_stop")),
                 "grasp_retries": int(event.get("closed_loop_grasp_attempts", 0)),
                 "placement_retries": int(event.get("closed_loop_placement_attempts", 0)),
@@ -437,12 +454,28 @@ def stage_argv(
     fast: bool,
     checkpoint: Path,
     vision_config: Path,
+    integrated: bool = False,
+    placement_config: Path | None = None,
 ) -> list[str]:
     argv = ["--run", str(run_dir), "--out", str(frames_dir)]
+    if placement_config is not None:
+        argv.extend(["--placement-config", str(placement_config)])
     if fast:
         argv.extend(["--sim-speedup", "1.5"])
     if physics_only:
         argv.append("--physics-only")
+    elif integrated:
+        # The final demo uses the learned table-camera classifier as a real
+        # fail-closed gate.  Rule-based wrist checks remain active for bounded
+        # state-machine recovery; the RL policy may adjust only the XY target.
+        argv.extend(
+            [
+                "--verification",
+                "rules",
+                "--rl-vision-config",
+                str(vision_config),
+            ]
+        )
     else:
         argv.extend(
             [
@@ -467,6 +500,8 @@ def run_stage(
     fast: bool,
     checkpoint: Path,
     vision_config: Path,
+    integrated: bool = False,
+    placement_config: Path | None = None,
 ) -> dict[str, Any]:
     argv = stage_argv(
         run_dir,
@@ -475,6 +510,8 @@ def run_stage(
         fast=fast,
         checkpoint=checkpoint,
         vision_config=vision_config,
+        integrated=integrated,
+        placement_config=placement_config,
     )
     sort_scene.main(argv, simulation_app=app)
     return read_json(run_dir / "execution_report.json")
@@ -484,7 +521,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", type=Path, required=True, help="six-cube sort run")
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--physics-only", action="store_true")
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument("--physics-only", action="store_true")
+    mode_group.add_argument(
+        "--integrated-demo",
+        action="store_true",
+        help=(
+            "run rendered classifier gating, bounded recovery and RL placement "
+            "in one fail-closed end-to-end demonstration"
+        ),
+    )
     parser.add_argument(
         "--fast",
         action="store_true",
@@ -499,6 +545,12 @@ def main() -> int:
         type=Path,
         default=ROOT / "configs/grasp_model_resnet_siamese.yaml",
     )
+    parser.add_argument(
+        "--placement-config",
+        type=Path,
+        default=ROOT / "configs/placement_verification.json",
+        help="calibrated camera geometry used by the post-place safety gate",
+    )
     args = parser.parse_args()
     source = args.run.resolve()
     out = args.out.resolve()
@@ -508,16 +560,41 @@ def main() -> int:
         raise SystemExit(f"missing RL checkpoint: {args.checkpoint.resolve()}")
     if not args.physics_only and not args.vision_config.resolve().is_file():
         raise SystemExit(f"missing classifier config: {args.vision_config.resolve()}")
+    if not args.placement_config.resolve().is_file():
+        raise SystemExit(f"missing placement config: {args.placement_config.resolve()}")
+    if args.integrated_demo:
+        from stacking_recovery.preflight import passed as preflight_passed
+        from stacking_recovery.preflight import run_preflight
+
+        checks = run_preflight(
+            ROOT,
+            rl_path=args.checkpoint,
+            vision_config=args.vision_config,
+            placement_config=args.placement_config,
+            run_dir=source,
+        )
+        if not preflight_passed(checks):
+            failures = [
+                f"- {check.name}: {check.detail}"
+                + (f" ({check.fix})" if check.fix else "")
+                for check in checks
+                if not check.passed
+            ]
+            raise SystemExit("integrated-demo preflight failed:\n" + "\n".join(failures))
 
     sort_dir = out / "01_sort"
     stack_dir = out / "02_stack"
-    mode = "physics" if args.physics_only else ("fast" if args.fast else "demo")
+    mode = (
+        "physics"
+        if args.physics_only
+        else ("integrated" if args.integrated_demo else ("fast" if args.fast else "demo"))
+    )
     live = LiveStatus(out, mode=mode)
     live.start()
-    # The physics gate exercises RL placement.  The rendered pass evaluates the
-    # classifier independently so an unrelated closed-loop placement retry
-    # cannot truncate the per-grab accuracy benchmark.
-    prepare_sort_stage(source, sort_dir, use_rl=args.physics_only)
+    # Benchmark/demo mode preserves the independent visual scorecard.  Physics
+    # mode and the explicit integrated demo both enable the bounded RL policy.
+    use_rl = bool(args.physics_only or args.integrated_demo)
+    prepare_sort_stage(source, sort_dir, use_rl=use_rl)
 
     import sort_scene  # noqa: E402
     from isaacsim import SimulationApp  # noqa: E402
@@ -534,8 +611,10 @@ def main() -> int:
             fast=args.fast,
             checkpoint=args.checkpoint.resolve(),
             vision_config=args.vision_config.resolve(),
+            integrated=args.integrated_demo,
+            placement_config=args.placement_config.resolve(),
         )
-        build_stack_stage(sort_dir, stack_dir, use_rl=args.physics_only)
+        build_stack_stage(sort_dir, stack_dir, use_rl=use_rl)
         live.set_phase("stack")
         stack_report = run_stage(
             sort_scene,
@@ -546,6 +625,8 @@ def main() -> int:
             fast=args.fast,
             checkpoint=args.checkpoint.resolve(),
             vision_config=args.vision_config.resolve(),
+            integrated=args.integrated_demo,
+            placement_config=args.placement_config.resolve(),
         )
         # Write the report before closing Kit.  Isaac may terminate the Python
         # process as part of shutdown, especially in the Brev launchable.

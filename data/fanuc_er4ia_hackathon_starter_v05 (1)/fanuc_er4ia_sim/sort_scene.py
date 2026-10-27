@@ -260,6 +260,14 @@ def main(argv=None, *, simulation_app=None):
             "to stop execution (benchmarking only)"
         ),
     )
+    ap.add_argument(
+        "--placement-config",
+        default=None,
+        help=(
+            "calibrated JSON geometry for the post-place camera gate; "
+            "required by the integrated runner"
+        ),
+    )
     a = ap.parse_args(argv)
     if a.fps != 30:
         ap.error("Use 30 fps: two 1/60 s physics steps per video frame")
@@ -487,14 +495,27 @@ def main(argv=None, *, simulation_app=None):
                 RecoveryPolicy,
             )
             from stacking_recovery.vision.grasp_check_factory import get_grasp_check_fn
-            from stacking_recovery.vision.place_check import place_check
+            from stacking_recovery.vision.place_check import (
+                load_placement_config,
+                place_check,
+            )
+
+            place_check_fn = place_check
+            if a.placement_config:
+                from functools import partial
+
+                placement_config_path = Path(a.placement_config).resolve()
+                if not placement_config_path.is_file():
+                    ap.error(f"placement config not found: {placement_config_path}")
+                placement_config = load_placement_config(placement_config_path)
+                place_check_fn = partial(place_check, config=placement_config)
 
             RecoveryDecision = RD
             ManipulationContext = MC
             recovery_policy = RecoveryPolicy(
                 log_path=run / "manipulation.jsonl",
                 grasp_check_fn=get_grasp_check_fn(verification),
-                place_check_fn=place_check,
+                place_check_fn=place_check_fn,
             )
         arm = SingleArticulation(prim_path=C.ROBOT_PRIM, name="er4ia")
         arm.initialize()

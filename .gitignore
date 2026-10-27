@@ -13,6 +13,7 @@ build/
 # Results & sim outputs
 results/runs/**/*
 !results/runs/.gitkeep
+results/release/
 
 # Data (keep fixtures dir, ignore captures)
 data/fixtures/**/*.png

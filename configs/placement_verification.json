@@ -1,0 +1,15 @@
+{
+  "roi_xyxy": [0.3, 0.25, 0.7, 0.75],
+  "expected_center_xy": [0.5, 0.5],
+  "center_tolerance": 0.28,
+  "expected_bottom_y": 0.68,
+  "bottom_tolerance": 0.3,
+  "level_y_step": 0.035,
+  "min_area_fraction": 0.015,
+  "max_area_fraction": 0.55,
+  "min_aspect_ratio": 0.45,
+  "max_aspect_ratio": 2.2,
+  "min_support_fraction": 0.2,
+  "min_saturation": 30,
+  "min_value": 35
+}

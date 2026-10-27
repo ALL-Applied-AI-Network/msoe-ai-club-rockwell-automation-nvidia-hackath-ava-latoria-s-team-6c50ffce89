@@ -1,6 +1,6 @@
 export type RunState = "running" | "completed" | "failed";
 export type RunPhase = "starting" | "sort" | "stack" | "complete" | "error";
-export type RunMode = "demo" | "fast" | "physics";
+export type RunMode = "demo" | "fast" | "physics" | "integrated";
 
 export interface GraspEvent {
   stage: "sort" | "stack";
@@ -20,6 +20,7 @@ export interface GraspEvent {
   camera_quality: { valid: boolean | null; reason: string | null };
   rl: {
     action: string | null;
+    actions: string[];
     safe_stop: boolean;
     grasp_retries: number;
     placement_retries: number;

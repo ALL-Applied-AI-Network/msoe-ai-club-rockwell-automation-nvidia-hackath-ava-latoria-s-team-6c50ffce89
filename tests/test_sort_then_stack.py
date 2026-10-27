@@ -102,6 +102,26 @@ class TestSortThenStack(unittest.TestCase):
         self.assertIn("--rl-vision-observe-only", argv)
         self.assertNotIn("--physics-only", argv)
 
+    def test_integrated_stage_gates_with_classifier_and_keeps_rendering(self) -> None:
+        argv = MODULE.stage_argv(
+            Path("run"),
+            Path("frames"),
+            physics_only=False,
+            fast=False,
+            checkpoint=Path("rl.json"),
+            vision_config=Path("vision.yaml"),
+            integrated=True,
+            placement_config=Path("placement.json"),
+        )
+
+        self.assertEqual(argv[argv.index("--verification") + 1], "rules")
+        self.assertIn("--rl-vision-config", argv)
+        self.assertEqual(
+            argv[argv.index("--placement-config") + 1], "placement.json"
+        )
+        self.assertNotIn("--rl-vision-observe-only", argv)
+        self.assertNotIn("--physics-only", argv)
+
     def test_live_status_is_frontend_friendly(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
@@ -118,6 +138,10 @@ class TestSortThenStack(unittest.TestCase):
                     "predictions": [{"class": "GOOD", "confidence": 0.95}],
                     "gate": {"action": "proceed"},
                 },
+                "rl_placement_decision": {
+                    "actions": ["CORRECT_LEFT", "PLACE_CENTER"],
+                    "safe_stop": False,
+                },
             }
             (sort_dir / "execution_events.json").write_text(json.dumps([event]))
             live = MODULE.LiveStatus(out, mode="fast")
@@ -128,6 +152,11 @@ class TestSortThenStack(unittest.TestCase):
         self.assertEqual(payload["progress"]["completed_grabs"], 1)
         self.assertEqual(payload["current"]["predicted_class"], "GOOD")
         self.assertEqual(payload["current"]["rl"]["grasp_retries"], 1)
+        self.assertEqual(payload["current"]["rl"]["action"], "PLACE_CENTER")
+        self.assertEqual(
+            payload["current"]["rl"]["actions"],
+            ["CORRECT_LEFT", "PLACE_CENTER"],
+        )
         self.assertEqual(payload["metrics"]["classifier_accuracy"], 1.0)
 
 

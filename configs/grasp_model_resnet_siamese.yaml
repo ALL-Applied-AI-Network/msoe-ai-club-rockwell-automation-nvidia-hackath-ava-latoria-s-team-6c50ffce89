@@ -1,5 +1,6 @@
 # Best table-camera pickup verifier from the fixed 2,520-pair benchmark.
 model_path: models/grasp_pickup_table_resnet18_siamese_224.pt
+model_sha256: "eb70a1e85ba47a07d413423ac660d6c0f14cd9ea4a69f18fb051fd0478d68f53"
 backbone: resnet18
 input_size: 224
 table_pair_mode: siamese_rgb_pair
