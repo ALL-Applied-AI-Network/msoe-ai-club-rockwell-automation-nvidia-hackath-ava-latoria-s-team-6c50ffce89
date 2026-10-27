@@ -235,6 +235,8 @@ class Policy:
         self._step = 0
         self._last_detections: dict[str, dict] = {}
         self._last_wrist_red_visible = False
+        self._red_seen_at_pick_target = False
+        self._pick_verification_source: str | None = None
         self.phase = "locate"
         self.red_xy_mm: tuple[float, float] | None = None
         self.blue_xy_mm: tuple[float, float] | None = None
@@ -420,6 +422,7 @@ class Policy:
                     "blue_target_xy_mm": list(self.blue_xy_mm) if self.blue_xy_mm else None,
                     "detections": self._last_detections,
                     "wrist_red_visible": self._last_wrist_red_visible,
+                    "pick_verification_source": self._pick_verification_source,
                     "rl_enabled": False,
                     "operator_fallback_active": self._operator_fallback_active,
                 },
@@ -500,6 +503,11 @@ class Policy:
             if math.dist(red, blue) < 30.0:
                 return self._fail(obs, "red and blue detections overlap before pickup")
             self.red_xy_mm, self.blue_xy_mm = red, blue
+            red_detection = self._last_detections.get("red", {})
+            self._red_seen_at_pick_target = bool(
+                red_detection.get("visible")
+                and red_detection.get("source") == "calibrated_camera"
+            )
             self.phase = "descend_pick"
             return self._move(obs, self._target(red, SAFE_Z_MM, 0.0))
 
@@ -520,7 +528,24 @@ class Policy:
             wrist_has_red = color_center(obs.get("images", {}).get("wrist", np.zeros((1, 1, 3), np.uint8)), "red") is not None
             self._last_wrist_red_visible = bool(wrist_has_red)
             moved = seen is not None and math.dist(seen, self.red_xy_mm) >= 15.0
-            if not wrist_has_red and not moved:
+            joints = np.asarray(obs.get("joints", []), dtype=float).reshape(-1)
+            gripper_closed = bool(joints.size and np.isfinite(joints[-1]) and joints[-1] >= 0.5)
+            disappeared_after_lift = bool(
+                self._red_seen_at_pick_target and seen is None and gripper_closed
+            )
+            if wrist_has_red:
+                self._pick_verification_source = "wrist_camera"
+            elif moved:
+                self._pick_verification_source = "table_camera_moved"
+            elif disappeared_after_lift:
+                # On the physical cell the 10 mm cube is normally hidden by
+                # the closed gripper, so the wrist camera cannot reliably see
+                # it.  A calibrated pre-pick observation followed by table
+                # disappearance, a closed gripper, and a completed lift is
+                # sufficient evidence to continue.  Operator-only fallback
+                # targets do not qualify for this path.
+                self._pick_verification_source = "table_disappearance_with_closed_gripper"
+            else:
                 return self._fail(obs, "pickup could not be verified", closed=True)
             self.phase = "descend_place"
             return self._move(obs, self._target(self.blue_xy_mm, SAFE_Z_MM, 1.0))

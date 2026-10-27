@@ -210,6 +210,55 @@ class TestRemoteCellPolicy(unittest.TestCase):
                 else:
                     os.environ[name] = value
 
+    def test_calibrated_cube_disappearance_with_closed_gripper_verifies_pick(self):
+        original = {name: os.environ.get(name) for name in POLICY.FIXED_TARGET_ENV.values()}
+        try:
+            for name in POLICY.FIXED_TARGET_ENV.values():
+                os.environ.pop(name, None)
+            policy = POLICY.Policy()
+            policy._calibration_error = None
+            policy._cams = {"table": {"size": (640, 360)}}
+
+            def fake_pixel_to_base(_camera, uv):
+                if uv[0] < 300:
+                    return np.array([0.42, -0.10, 0.0])
+                return np.array([0.50, 0.10, 0.0])
+
+            policy._pixel_to_base = fake_pixel_to_base
+            table = np.zeros((360, 640, 3), dtype=np.uint8)
+            table[100:112, 200:212] = (230, 20, 20)
+            table[200:212, 400:412] = (20, 30, 230)
+            obs = {
+                "images": {"table": table, "wrist": np.zeros_like(table)},
+                "tcp_pose": [300, 0, -90, -180, 0, 0],
+                "joints": [0, 0, 0, 0, 0, 0, 0],
+            }
+
+            for _ in range(4):
+                action = np.asarray(policy.act(obs), dtype=float).reshape(-1, 7)
+                obs["tcp_pose"] = action[-1, :6].tolist()
+                obs["joints"][-1] = action[-1, 6]
+
+            # The calibrated red cube was visible before pickup.  Once the
+            # closed gripper lifts, its disappearance from the table is valid
+            # verification even when the wrist camera cannot see a 10 mm cube.
+            obs["images"]["table"] = np.zeros_like(table)
+            obs["images"]["table"][200:212, 400:412] = (20, 30, 230)
+            action = np.asarray(policy.act(obs), dtype=float).reshape(-1, 7)
+
+            self.assertEqual(policy.phase, "descend_place")
+            self.assertEqual(
+                policy._pick_verification_source,
+                "table_disappearance_with_closed_gripper",
+            )
+            self.assertTrue(all(POLICY.tcp_is_safe(row) for row in action))
+        finally:
+            for name, value in original.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
 
 if __name__ == "__main__":
     unittest.main()
