@@ -238,6 +238,12 @@ def parse_args() -> argparse.Namespace:
         default=Path("configs/grasp_model_resnet_siamese.yaml"),
         help="pickup classifier used to gate RL placements",
     )
+    parser.add_argument(
+        "--placement-config",
+        type=Path,
+        default=Path("configs/placement_verification.json"),
+        help="calibrated post-place camera gate",
+    )
     parser.add_argument("--seeds", type=int, nargs="+", default=[310, 311, 312, 313, 314])
     parser.add_argument("--offset-m", type=float, default=0.008)
     parser.add_argument(
@@ -260,6 +266,7 @@ def main() -> int:
     out = args.out.resolve()
     checkpoint = args.checkpoint.resolve()
     vision_config = args.vision_config.resolve()
+    placement_config = args.placement_config.resolve()
     if not (run / "sort_plan.json").is_file() or not (run / "scene_state.json").is_file():
         raise SystemExit("--run must contain sort_plan.json and scene_state.json")
     try:
@@ -272,6 +279,8 @@ def main() -> int:
         raise SystemExit(f"missing RL checkpoint: {checkpoint}")
     if not vision_config.is_file():
         raise SystemExit(f"missing RL vision config: {vision_config}")
+    if not placement_config.is_file():
+        raise SystemExit(f"missing placement config: {placement_config}")
 
     trials_dir = out / "trials"
     trials_dir.mkdir(parents=True, exist_ok=True)
@@ -325,6 +334,10 @@ def main() -> int:
                 str(job["trial_path"]),
                 "--max-picks",
                 str(args.max_picks),
+                "--verification",
+                "stub",
+                "--placement-config",
+                str(placement_config),
             ]
             if policy == "rl":
                 argv.extend(
@@ -344,17 +357,19 @@ def main() -> int:
             copied["comparison_policy"] = policy
             destination.write_text(json.dumps(copied, indent=2) + "\n", encoding="utf-8")
             report_paths.append(destination)
+
+        # SimulationApp.close() may terminate the interpreter under Isaac's
+        # fast-shutdown mode. Persist completed acceptance evidence first.
+        summary = summarize(report_paths)
+        (out / "summary.json").write_text(
+            json.dumps(summary, indent=2) + "\n", encoding="utf-8"
+        )
+        write_metrics_csv(summary["runs"], out / "trial_metrics.csv")
+        write_comparison_svg(summary["aggregate"], out / "completion_rate.svg")
+        print(json.dumps(summary["aggregate"], indent=2))
+        print(json.dumps(summary["acceptance"], indent=2))
     finally:
         app.close()
-
-    summary = summarize(report_paths)
-    (out / "summary.json").write_text(
-        json.dumps(summary, indent=2) + "\n", encoding="utf-8"
-    )
-    write_metrics_csv(summary["runs"], out / "trial_metrics.csv")
-    write_comparison_svg(summary["aggregate"], out / "completion_rate.svg")
-    print(json.dumps(summary["aggregate"], indent=2))
-    print(json.dumps(summary["acceptance"], indent=2))
     return 0
 
 

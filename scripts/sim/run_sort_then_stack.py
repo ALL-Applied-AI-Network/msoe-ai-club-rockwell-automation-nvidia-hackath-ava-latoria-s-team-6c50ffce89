@@ -465,13 +465,15 @@ def stage_argv(
     if physics_only:
         argv.append("--physics-only")
     elif integrated:
-        # The final demo uses the learned table-camera classifier as a real
-        # fail-closed gate.  Rule-based wrist checks remain active for bounded
-        # state-machine recovery; the RL policy may adjust only the XY target.
+        # The validated before/after table-camera classifier is the real
+        # fail-closed pickup gate. Do not also apply the legacy single-frame
+        # wrist colour rule: it can veto a physically successful grasp before
+        # the trained model sees it. Physics, learned vision and placement
+        # checks remain active; RL may adjust only the bounded XY target.
         argv.extend(
             [
                 "--verification",
-                "rules",
+                "stub",
                 "--rl-vision-config",
                 str(vision_config),
             ]

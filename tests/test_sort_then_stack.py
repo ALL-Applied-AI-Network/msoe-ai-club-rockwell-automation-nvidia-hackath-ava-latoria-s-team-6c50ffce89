@@ -114,7 +114,7 @@ class TestSortThenStack(unittest.TestCase):
             placement_config=Path("placement.json"),
         )
 
-        self.assertEqual(argv[argv.index("--verification") + 1], "rules")
+        self.assertEqual(argv[argv.index("--verification") + 1], "stub")
         self.assertIn("--rl-vision-config", argv)
         self.assertEqual(
             argv[argv.index("--placement-config") + 1], "placement.json"
