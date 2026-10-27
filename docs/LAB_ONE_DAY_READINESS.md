@@ -56,12 +56,22 @@ combined scorecard:
 python scripts/generate_lab_readiness_report.py \
   --data /workspace/team-data/table-external-test-20261025-190359 \
   --classifier-metrics results/external_test/external_test_metrics.json \
-  --rl-metrics results/rl_isaac_comparison/summary.json
+  --rl-metrics results/rl_isaac_comparison/summary.json \
+  --failure-metrics results/lab_acceptance/failure_handling.json \
+  --repeatability-metrics results/lab_acceptance/repeatability.json
 ```
 
 This writes `results/lab_readiness/readiness.json` and a short Markdown summary.
 The current collection target is 250 examples **per binary class**, or 500
 independent test pairs total.
+
+The intentional-failure evidence file must record `total_trials`, per-scenario
+counts for `missed_grasp`, `shifted_cube`, `occlusion`, and `placement_offset`,
+plus `safe_outcomes`, `unsafe_carries`, and
+`ignored_verification_failures`. The repeatability file must record
+`clean_restarts`, `successful_restarts`, and whether all three produced an
+`identical_plan`. The scorecard now fails closed when either file is missing;
+the release cannot be marked `GO` from model metrics alone.
 
 ## Information to obtain from the lab before arrival
 
