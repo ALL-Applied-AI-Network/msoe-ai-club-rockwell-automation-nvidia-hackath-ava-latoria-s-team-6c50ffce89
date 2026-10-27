@@ -48,7 +48,11 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
     attempt_indices = [e.get("attempt_index", 0) for e in grasp_checks]
     comparisons = Counter()
     picks = report.get("picks", report.get("events", []))
+    if not isinstance(picks, list):
+        picks = []
     for pick in picks:
+        if not isinstance(pick, dict):
+            continue
         grasp = pick.get("closed_loop_grasp")
         physics = pick.get("pickup_verified")
         if not isinstance(grasp, dict) or not isinstance(physics, bool):
@@ -64,8 +68,31 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
             comparisons["true_negative"] += 1
     fp_denominator = comparisons["false_positive"] + comparisons["true_negative"]
     fn_denominator = comparisons["false_negative"] + comparisons["true_positive"]
+    first_failure = None
+    for index, pick in enumerate(picks):
+        if not isinstance(pick, dict):
+            continue
+        phase = None
+        result = None
+        if pick.get("pickup_verified") is False:
+            phase = "pickup"
+            result = pick.get("closed_loop_grasp")
+        elif pick.get("placement_verified") is False:
+            phase = "placement"
+            result = pick.get("closed_loop_place")
+        if phase:
+            first_failure = {
+                "pick_index": index,
+                "phase": phase,
+                "detection_id": pick.get("detection_id"),
+                "stack_level": pick.get("stack_level"),
+                "reason": result.get("reason") if isinstance(result, dict) else None,
+            }
+            break
     return {
         "run_dir": str(run_dir),
+        "report_found": report_path.exists(),
+        "observed_picks": len(picks),
         "task_complete": report.get("task_complete"),
         "verified_pickups": report.get("verified_pickups"),
         "verified_placements": report.get("verified_placements"),
@@ -97,7 +124,73 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
         "false_negative_rate": (
             comparisons["false_negative"] / fn_denominator if fn_denominator else None
         ),
+        "abort_reason": report.get("abort_reason"),
+        "first_failure": first_failure,
     }
+
+
+def diagnose_run(summary: dict[str, Any]) -> list[str]:
+    """Turn run metrics into short, actionable next steps."""
+    if not summary.get("report_found"):
+        return [
+            "No execution_report.json was found. Check the simulator log for an "
+            "early startup, asset, camera, or IK failure before tuning the model."
+        ]
+    if summary.get("task_complete") is True:
+        return [
+            "Run completed successfully; repeat it across randomized seeds before "
+            "changing control logic."
+        ]
+
+    advice: list[str] = []
+    abort = str(summary.get("abort_reason") or "").lower()
+    confusion = summary.get("grasp_confusion") or {}
+    if confusion.get("false_positive", 0):
+        advice.append(
+            "The verifier accepted at least one grasp that physics says failed. Use "
+            "ai_guarded or rules for the demo, inspect the matching wrist frame, and "
+            "raise the GOOD threshold only after validation."
+        )
+    if confusion.get("false_negative", 0):
+        advice.append(
+            "The verifier rejected at least one physically successful grasp. Review "
+            "that wrist frame for crop or label problems before retraining."
+        )
+    if "closed-loop grasp stop" in abort and not confusion.get("false_negative", 0):
+        advice.append(
+            "Grasp verification exhausted its retries. Inspect the saved grasp result, "
+            "jaw gap, wrist crop, and the first failure reason before changing thresholds."
+        )
+    pickups = summary.get("verified_pickups")
+    placements = summary.get("verified_placements")
+    observed = summary.get("observed_picks")
+    if (
+        isinstance(pickups, int)
+        and isinstance(observed, int)
+        and observed > 0
+        and pickups < observed
+        and not advice
+    ):
+        advice.append(
+            "At least one attempted pickup failed; inspect wrist alignment, jaw gap, "
+            "friction, and the first failed pick in execution_report.json."
+        )
+    if isinstance(placements, int) and isinstance(pickups, int) and placements < pickups:
+        advice.append(
+            "At least one lifted cube was not placed correctly; inspect placement XY/Z, "
+            "yaw, tilt, and stack-support checks."
+        )
+    if "ik failed" in abort:
+        advice.append(
+            "Motion planning failed before the task could finish. Check the commanded "
+            "pose, offsets, and reachability before changing vision or recovery logic."
+        )
+    if not advice:
+        advice.append(
+            "The run is incomplete; inspect abort_reason and the first failed pick before "
+            "changing thresholds."
+        )
+    return advice
 
 
 def summarize_suite(run_dirs: list[Path]) -> dict[str, Any]:

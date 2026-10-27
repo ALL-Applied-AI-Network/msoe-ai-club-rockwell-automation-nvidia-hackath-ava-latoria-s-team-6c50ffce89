@@ -84,6 +84,12 @@ python scripts/serve_dashboard_api.py \
   --allow-origin http://localhost:5173
 ```
 
+Review any completed Isaac run with a short result and next-step summary:
+
+```bash
+python scripts/review_run.py runs/<run-name>
+```
+
 See [the frontend contract](docs/frontend/LIVE_STATUS.md), [the one-day lab
 plan](docs/LAB_ONE_DAY_READINESS.md), [the release-freeze
 gate](docs/DEMO_RELEASE.md), and [the hardware boundary](hardware/README.md).
