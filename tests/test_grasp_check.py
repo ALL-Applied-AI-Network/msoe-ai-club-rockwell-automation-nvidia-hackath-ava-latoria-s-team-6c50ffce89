@@ -11,11 +11,11 @@ class TestGraspCheck(unittest.TestCase):
         r = grasp_check(img)
         self.assertFalse(r.seated)
 
-    def test_bright_center_stub_passes(self):
+    def test_bright_center_passes(self):
         img = np.zeros((720, 1280, 3), dtype=np.uint8)
-        img[320:400, 560:720] = (200, 180, 50)
+        img[280:440, 480:800] = (200, 180, 50)
         r = grasp_check(img)
-        self.assertTrue(r.seated)
+        self.assertTrue(r.seated, msg=f"{r.reason} conf={r.confidence}")
 
 
 if __name__ == "__main__":

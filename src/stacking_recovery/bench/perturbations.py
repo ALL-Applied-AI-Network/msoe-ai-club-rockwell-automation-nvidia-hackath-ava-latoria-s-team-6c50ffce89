@@ -31,10 +31,13 @@ def trial_to_overrides(trial: dict[str, Any]) -> dict[str, Any]:
     for key in (
         "yaw_offset_deg",
         "pick_xy_offset_m",
+        "place_xy_offset_m",
         "tip_static_friction",
         "touching_cube_colours",
         "occluding_object",
         "tilt_deg",
+        "campaign_target",
+        "campaign_scenario",
     ):
         if key in trial:
             overrides[key] = trial[key]

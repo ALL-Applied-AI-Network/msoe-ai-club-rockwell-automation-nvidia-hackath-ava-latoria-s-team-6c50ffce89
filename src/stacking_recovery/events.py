@@ -12,6 +12,8 @@ ActionCode = Literal[
     "grasp_close",
     "grasp_check",
     "place_check",
+    "second_look",
+    "reacquire",
     "regrasp",
     "carry",
     "place",
@@ -36,6 +38,7 @@ class ManipulationEvent:
     check_confidence: Optional[float] = None
     yaw_error_deg: Optional[float] = None
     duration_s: Optional[float] = None
+    placement_attempt_index: Optional[int] = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -56,6 +59,7 @@ def new_event(
     check_confidence: Optional[float] = None,
     yaw_error_deg: Optional[float] = None,
     duration_s: Optional[float] = None,
+    placement_attempt_index: Optional[int] = None,
     extra: Optional[dict[str, Any]] = None,
 ) -> ManipulationEvent:
     return ManipulationEvent(
@@ -72,6 +76,7 @@ def new_event(
         check_confidence=check_confidence,
         yaw_error_deg=yaw_error_deg,
         duration_s=duration_s,
+        placement_attempt_index=placement_attempt_index,
         extra=extra or {},
     )
 

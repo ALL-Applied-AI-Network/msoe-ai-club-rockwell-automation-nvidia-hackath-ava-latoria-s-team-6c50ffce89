@@ -1,0 +1,6 @@
+{
+  "condition_id": "nominal",
+  "seed": 0,
+  "policy": "closed_loop",
+  "finger": "cube_flat_pad"
+}

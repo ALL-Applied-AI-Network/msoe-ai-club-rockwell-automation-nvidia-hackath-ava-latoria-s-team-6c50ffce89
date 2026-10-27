@@ -17,7 +17,7 @@ This is your team's repository for the four-week physical AI hackathon run by Ro
 
 ## Team project
 
-**Vision-Guided Closed-Loop Manipulation for Robust Cube Stacking** — wrist-camera grasp/placement checks and bounded regrasp on the Grasping and Sorting dataset.
+**Vision-Guided Closed-Loop Manipulation with AI-Based Grasp Verification** — learned wrist-camera grasp quality (Isaac-synthetic training) + recovery on the Grasping and Sorting dataset. Design: [docs/AI_GRASP_VERIFICATION_DESIGN.md](docs/AI_GRASP_VERIFICATION_DESIGN.md).
 
 | Doc | Purpose |
 | --- | --- |
@@ -27,11 +27,74 @@ This is your team's repository for the four-week physical AI hackathon run by Ro
 
 ```bash
 python run_tests.py
+python scripts/generate_trials.py    # full 2×2 benchmark matrix
 python scripts/run_benchmark.py
-# optional: python -m pip install -e ".[dev]"
+python scripts/run_benchmark.py --execute --max-trials 1  # Isaac/Cosmos smoke run
+python scripts/run_benchmark.py --write-summary   # after sim runs land in results/runs/
 ```
 
+**AI grasp classifier (no Isaac yet):**
+
+```bash
+pip install -e ".[ml]"
+python scripts/generate_procedural_wrist_dataset.py
+python scripts/train_grasp_classifier.py --fast   # use full fine-tune on Brev when ready
+python scripts/eval_grasp_classifier.py
+python scripts/retrain_grasp_classifier.py --finetune   # after GRASP_FEEDBACK=1 sessions
+```
+
+Continual improvement: [docs/GRASP_DATA_AND_FEEDBACK.md](docs/GRASP_DATA_AND_FEEDBACK.md)
+
+Closed-loop sim (Isaac/Cosmos): see [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) — `CLOSED_LOOP=1`, optional `VERIFICATION=rules|ai|ai_guarded`, and `TRIAL_CONFIG=...` on `run_sort_pipeline.sh`. Use `ai_guarded` for demos until the learned model has a representative Isaac/real-camera holdout evaluation; it proceeds only when AI and deterministic wrist checks agree.
+
 Starter sim: `data/fanuc_er4ia_hackathon_starter_v05 (1)/fanuc_er4ia_sim/`
+
+## Integrated sort-and-stack demo
+
+The `ava-rl` branch can run the classifier safety gate, bounded state-machine
+recovery, and RL placement adjustment together in the rendered digital twin.
+Start with the fail-closed checks so a missing Git LFS model cannot silently
+turn into a broken demo:
+
+```bash
+git lfs pull
+python scripts/preflight_demo.py \
+  --run /workspace/team-data/grasp-sort-live/sort_baseline_full_02
+```
+
+Run the complete visible demonstration in Isaac Sim:
+
+```bash
+/isaac-sim/python.sh scripts/sim/run_sort_then_stack.py \
+  --run /workspace/team-data/grasp-sort-live/sort_baseline_full_02 \
+  --out /workspace/team-data/e2e/sort-stack-integrated-01 \
+  --integrated-demo \
+  --placement-config configs/placement_verification.json
+```
+
+The output contains live status, per-grab classifier results, state-machine
+events, RL actions, metrics, and rendered frames. A React/TypeScript dashboard
+can read those artifacts (and an MP4 when one has been recorded into the run
+folder) through the read-only API:
+
+```bash
+python scripts/serve_dashboard_api.py \
+  --run /workspace/team-data/e2e/sort-stack-integrated-01 \
+  --host 0.0.0.0 \
+  --allow-origin http://localhost:5173
+```
+
+Review any completed Isaac run with a short result and next-step summary:
+
+```bash
+python scripts/review_run.py runs/<run-name>
+```
+
+See [the frontend contract](docs/frontend/LIVE_STATUS.md), [the one-day lab
+plan](docs/LAB_ONE_DAY_READINESS.md), [the release-freeze
+gate](docs/DEMO_RELEASE.md), and [the hardware boundary](hardware/README.md).
+The checked-in hardware adapter is shadow-only: it can produce an auditable
+command transcript but cannot connect to or move the FANUC robot.
 
 ## First week
 
@@ -48,6 +111,13 @@ Starter sim: `data/fanuc_er4ia_hackathon_starter_v05 (1)/fanuc_er4ia_sim/`
 1. **[Final Vial Inspection](https://msoe-maic.com/library?article=Rockwell-NVIDIA-Fall-2026-Vial-Inspection):** find missing caps, crooked caps, damaged vials and unexpected empty positions after the robot fills a fixture.
 2. **[Fluid Mixing Station 3](https://msoe-maic.com/library?article=Rockwell-NVIDIA-Fall-2026-Fluid-Mixing):** use synchronized camera views to detect fill and color problems caused by recipes and fluid carryover.
 3. **[Grasping and Sorting](https://msoe-maic.com/library?article=Rockwell-NVIDIA-Fall-2026-Grasping-Sorting):** use a digital twin and multiple cameras to make a standalone FANUC arm grasp and sort objects more reliably.
+
+## Ava RL experiment
+
+The `ava-rl` branch adds a simulation-only reinforcement-learning experiment
+for high-level cube placement and recovery decisions. See
+[`docs/RL_STACKING_EXPERIMENT.md`](docs/RL_STACKING_EXPERIMENT.md) for the
+design, safety boundary, training command, and current evaluation workflow.
 
 ## Read before your team plan
 

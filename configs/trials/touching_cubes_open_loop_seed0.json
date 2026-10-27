@@ -1,0 +1,7 @@
+{
+  "condition_id": "touching_cubes",
+  "seed": 0,
+  "policy": "open_loop",
+  "finger": "stock_aa_scallop",
+  "touching_cube_colours": ["yellow", "blue"]
+}

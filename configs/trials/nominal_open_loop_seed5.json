@@ -1,0 +1,6 @@
+{
+  "condition_id": "nominal_test",
+  "seed": 5,
+  "policy": "open_loop",
+  "finger": "stock_aa_scallop"
+}

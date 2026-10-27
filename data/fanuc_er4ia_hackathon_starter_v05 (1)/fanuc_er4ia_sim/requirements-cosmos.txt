@@ -1,5 +1,10 @@
-# Install alongside a CUDA-enabled PyTorch and NVIDIA transformers-cosmos3.
-# These are the geometry/image dependencies used inside the Cosmos interpreter.
+# Install alongside a CUDA-enabled PyTorch. Transformers 5.11+ includes the
+# supported Cosmos3 Reasoner integration.
+transformers>=5.11
+accelerate>=1.0
+av>=14
+pillow>=11
+safetensors>=0.8
 numpy>=2.0
 scipy>=1.14
 opencv-python-headless>=4.10

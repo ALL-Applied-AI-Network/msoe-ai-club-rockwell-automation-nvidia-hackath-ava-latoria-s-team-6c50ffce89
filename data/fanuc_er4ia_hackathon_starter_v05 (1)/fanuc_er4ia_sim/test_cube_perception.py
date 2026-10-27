@@ -7,7 +7,7 @@ from unittest.mock import patch
 import json
 import cv2
 import numpy as np
-from perceive import audit_stack_colours, parse_json
+from perceive import audit_stack_colours, filter_stack_cube_poses, parse_json
 
 
 class CubePerceptionTests(unittest.TestCase):
@@ -65,6 +65,39 @@ class CubePerceptionTests(unittest.TestCase):
         self.assertEqual(
             parse_json('```json\n[{"category":"cube"}]\n```'),
             {"objects": [{"category": "cube"}]},
+        )
+
+    def test_safety_filter_rejects_bad_geometry_and_keeps_audit_trail(self):
+        good = dict(
+            category="cube",
+            colour="blue",
+            pose_confidence=0.91,
+            pose_world={"position_m": [0.3, 0.1, 0.2]},
+            image_pose_measurement={"silhouette_iou": 0.93},
+        )
+        cap_mistake = dict(
+            category="cube",
+            colour="yellow",
+            pose_confidence=0,
+            image_pose_measurement={"silhouette_iou": 0},
+        )
+        result = filter_stack_cube_poses({"objects": [good, cap_mistake]})
+        self.assertEqual(result["objects"], [dict(good, perception_eligible=True)])
+        self.assertEqual(len(result["rejected_objects"]), 1)
+        self.assertEqual(
+            result["rejected_objects"][0]["skip_reason"],
+            "cube_silhouette_fit_uncertain",
+        )
+        self.assertEqual(result["perception_safety"]["accepted"], 1)
+
+    def test_safety_filter_fails_closed_when_pose_evidence_is_missing(self):
+        result = filter_stack_cube_poses(
+            {"objects": [dict(category="cube", colour="red", pose_confidence=0.99)]}
+        )
+        self.assertEqual(result["objects"], [])
+        self.assertEqual(
+            result["rejected_objects"][0]["skip_reason"],
+            "cube_silhouette_fit_uncertain",
         )
 
 

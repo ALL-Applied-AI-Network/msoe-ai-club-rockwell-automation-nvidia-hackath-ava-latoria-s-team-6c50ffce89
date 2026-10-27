@@ -11,7 +11,7 @@ import numpy as np
 import scene_config as C
 from test_support import camera_model as model
 from plan_sort import build_plan as task_plan, cap_silhouette, score_observations
-from sort_scene import validate_plan, verify_cube_stack
+from sort_scene import expected_placement_centre_z, validate_plan, verify_cube_stack
 
 
 def build_plan(*args, **kwargs):
@@ -20,6 +20,12 @@ def build_plan(*args, **kwargs):
 
 
 class HardwareConfigurationTests(unittest.TestCase):
+    def test_cube_sort_verifier_uses_resting_cube_centre_height(self):
+        self.assertAlmostEqual(
+            expected_placement_centre_z("cube"),
+            C.TABLE_TOP_Z + C.SURFACE_DZ + C.CUBE_EDGE / 2,
+        )
+
     def test_smc_travel_and_demo_clearance(self):
         self.assertEqual(C.GRIPPER_MODEL, "SMC MHZL2-16D2")
         self.assertAlmostEqual(C.JAW_STROKE, 0.006)

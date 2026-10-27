@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from perceive import _find_nano
+from sort_scene import wide_up_object_names
 
 
 class RuntimeConfigTests(unittest.TestCase):
@@ -36,6 +37,25 @@ class RuntimeConfigTests(unittest.TestCase):
             with patch.dict(os.environ, {"COSMOS3_NANO_PATH": directory}, clear=True):
                 with self.assertRaisesRegex(SystemExit, "missing config.json"):
                     _find_nano()
+
+    def test_optional_ground_truth_can_be_absent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(wide_up_object_names(Path(directory)), [])
+
+    def test_wide_up_objects_are_loaded_for_evaluation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            (run / "ground_truth.json").write_text(
+                json.dumps(
+                    {
+                        "objects": [
+                            {"name": "wide", "orientation": "wide_end_up"},
+                            {"name": "narrow", "orientation": "narrow_end_up"},
+                        ]
+                    }
+                )
+            )
+            self.assertEqual(wide_up_object_names(run), ["wide"])
 
 
 if __name__ == "__main__":

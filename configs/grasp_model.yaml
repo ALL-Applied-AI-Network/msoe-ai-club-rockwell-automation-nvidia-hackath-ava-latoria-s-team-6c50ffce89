@@ -1,0 +1,52 @@
+# Wrist grasp-quality classifier (MobileNetV3-Small)
+model_path: models/grasp_quality_mobilenet_v3.pt
+backbone: mobilenet_v3_small
+input_size: 224
+num_classes: 7
+
+classes:
+  - GOOD
+  - EMPTY_GRASP
+  - MISALIGNED
+  - ROTATED
+  - SHIFTED
+  - PLACEMENT_FAILURE
+  - UNCERTAIN
+
+# Normalized ROI crop on wrist frame (1280x720 typical)
+roi:
+  y0: 0.30
+  y1: 0.70
+  x0: 0.22
+  x1: 0.78
+
+thresholds:
+  tau_good: 0.75
+  tau_act: 0.55
+
+training:
+  batch_size: 32
+  epochs: 15
+  lr: 0.001
+  weight_decay: 0.0001
+  finetune_epochs: 8
+  finetune_lr: 0.0001
+  early_stop_patience: 12
+
+augmentation:
+  brightness_delta: 0.18
+  contrast_delta: 0.12
+  noise_std: 10
+  blur_prob: 0.25
+  blur_ksize: 5
+  jpeg_prob: 0.2
+  jpeg_quality_min: 55
+  jpeg_quality_max: 92
+
+# Runtime / Isaac sample capture → manifest.json (see docs/GRASP_DATA_AND_FEEDBACK.md)
+feedback:
+  enabled: false
+  mode: feedback          # feedback | collect_all
+  data_root: data/grasp_quality
+  record_bad_grasps: true
+  record_mismatch: true

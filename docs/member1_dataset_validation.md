@@ -44,3 +44,9 @@ The validation checks do not guarantee that all images fully decode or that all 
 2. Coordinate additional original ROTATED image collection in Isaac Sim if needed.
 3. Preserve the existing train, validation, and test separation.
 4. Perform broader visual inspection and full image decoding checks before final dataset handoff.
+
+## Integration Note
+
+The final grasp verifier uses a binary safety decision: `GOOD` versus failure.
+`SHIFTED` and `ROTATED` are both treated as failure cases. The independent
+holdout and matched Isaac acceptance campaign remain the final readiness gates.

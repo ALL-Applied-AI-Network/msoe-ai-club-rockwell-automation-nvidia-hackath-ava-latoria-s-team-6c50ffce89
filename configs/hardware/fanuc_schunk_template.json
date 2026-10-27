@@ -1,0 +1,25 @@
+{
+  "mode": "shadow",
+  "motion_enabled": false,
+  "supervisor_authorized": false,
+  "fanuc": {
+    "controller_model": null,
+    "driver": null,
+    "robot_address": null,
+    "base_frame": "robot_base",
+    "tool_frame": null,
+    "max_speed_scale": 0.1
+  },
+  "schunk": {
+    "model": null,
+    "open_output": null,
+    "close_output": null,
+    "open_input": null,
+    "closed_input": null
+  },
+  "safety": {
+    "known_safe_home": null,
+    "workspace_limits_m": null,
+    "stop_handshake": null
+  }
+}
