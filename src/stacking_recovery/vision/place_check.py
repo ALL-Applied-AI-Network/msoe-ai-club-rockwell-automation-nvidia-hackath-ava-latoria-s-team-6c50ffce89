@@ -36,6 +36,7 @@ class PlacementGeometryConfig:
     min_aspect_ratio: float = 0.45
     max_aspect_ratio: float = 2.20
     min_support_fraction: float = 0.20
+    min_confidence: float = CONFIDENCE_MIN
     min_saturation: int = 30
     min_value: int = 35
 
@@ -55,6 +56,8 @@ class PlacementGeometryConfig:
             raise ValueError("invalid aspect-ratio limits")
         if not 0 <= self.min_support_fraction <= 1:
             raise ValueError("min_support_fraction must be in [0, 1]")
+        if not 0 < self.min_confidence <= 1:
+            raise ValueError("min_confidence must be in (0, 1]")
 
 
 def load_placement_config(path: str | Path) -> PlacementGeometryConfig:
@@ -65,27 +68,37 @@ def load_placement_config(path: str | Path) -> PlacementGeometryConfig:
     return PlacementGeometryConfig(**raw)
 
 
-def _largest_component(
-    mask: np.ndarray, stack_level: int
+def _target_component(
+    mask: np.ndarray,
+    stack_level: int,
+    expected_center_xy: tuple[float, float],
 ) -> tuple[float, float, float, float, float, float] | None:
-    """Return top-cube geometry and the support fraction below it.
+    """Return geometry for the component nearest the expected stack site.
 
     Saturated cubes that touch vertically form one connected component.  For
     stack levels above zero, treating that whole component as one object makes
     a valid tower look too tall.  Instead, use one component-width of pixels at
     its top as the newly placed cube, then measure whether saturated support is
-    present immediately below it.
+    present immediately below it.  Selecting by target proximity prevents a
+    large, saturated robot link elsewhere in the ROI from being mistaken for
+    the placed cube.
     """
     h, w = mask.shape
+    components: list[tuple[float, float, float, float, float, float]] = []
     if cv2 is not None:
-        count, _, stats, centroids = cv2.connectedComponentsWithStats(
+        count, labels, stats, centroids = cv2.connectedComponentsWithStats(
             mask.astype(np.uint8), connectivity=8
         )
         if count <= 1:
             return None
-        index = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-        x, y, bw, bh, area = (int(v) for v in stats[index])
-        cx, cy = (float(v) for v in centroids[index])
+        raw_components = [
+            (
+                labels == index,
+                *(int(v) for v in stats[index]),
+                *(float(v) for v in centroids[index]),
+            )
+            for index in range(1, count)
+        ]
     else:
         ys, xs = np.nonzero(mask)
         if len(xs) == 0:
@@ -94,42 +107,55 @@ def _largest_component(
         bw, bh = int(xs.max() - x + 1), int(ys.max() - y + 1)
         area = int(mask.sum())
         cx, cy = float(xs.mean()), float(ys.mean())
-    support_fraction = 1.0
-    if stack_level > 0:
-        top_height = max(1, min(bh, bw))
-        top = mask[y : y + top_height, x : x + bw]
-        top_ys, top_xs = np.nonzero(top)
-        if len(top_xs) == 0:
-            return None
-        top_x0, top_x1 = int(top_xs.min()), int(top_xs.max()) + 1
-        top_y0, top_y1 = int(top_ys.min()), int(top_ys.max()) + 1
-        area = int(len(top_xs))
-        cx = x + float(top_xs.mean())
-        cy = y + float(top_ys.mean())
-        bw = top_x1 - top_x0
-        bh = top_y1 - top_y0
-        y = y + top_y0
+        raw_components = [(mask, x, y, bw, bh, area, cx, cy)]
 
-        support_y = y + bh
-        support_height = max(2, min(max(2, bh // 4), h - support_y))
-        if support_height <= 0:
-            support_fraction = 0.0
-        else:
-            support_x0 = max(0, x + top_x0)
-            support_x1 = min(w, support_x0 + bw)
-            support = mask[
-                support_y : support_y + support_height,
-                support_x0:support_x1,
-            ]
-            support_fraction = float(support.mean()) if support.size else 0.0
+    for component_mask, x, y, bw, bh, area, cx, cy in raw_components:
+        support_fraction = 1.0
+        if stack_level > 0:
+            top_height = max(1, min(bh, bw))
+            top = component_mask[y : y + top_height, x : x + bw]
+            top_ys, top_xs = np.nonzero(top)
+            if len(top_xs) == 0:
+                continue
+            top_x0, top_x1 = int(top_xs.min()), int(top_xs.max()) + 1
+            top_y0, top_y1 = int(top_ys.min()), int(top_ys.max()) + 1
+            area = int(len(top_xs))
+            cx = x + float(top_xs.mean())
+            cy = y + float(top_ys.mean())
+            bw = top_x1 - top_x0
+            bh = top_y1 - top_y0
+            y = y + top_y0
 
-    return (
-        area / float(h * w),
-        cx / max(w - 1, 1),
-        cy / max(h - 1, 1),
-        bw / max(float(bh), 1.0),
-        (y + bh) / float(h),
-        support_fraction,
+            support_y = y + bh
+            support_height = max(2, min(max(2, bh // 4), h - support_y))
+            if support_height <= 0:
+                support_fraction = 0.0
+            else:
+                support_x0 = max(0, x + top_x0)
+                support_x1 = min(w, support_x0 + bw)
+                support = component_mask[
+                    support_y : support_y + support_height,
+                    support_x0:support_x1,
+                ]
+                support_fraction = float(support.mean()) if support.size else 0.0
+
+        components.append(
+            (
+                area / float(h * w),
+                cx / max(w - 1, 1),
+                cy / max(h - 1, 1),
+                bw / max(float(bh), 1.0),
+                (y + bh) / float(h),
+                support_fraction,
+            )
+        )
+
+    if not components:
+        return None
+    expected_x, expected_y = expected_center_xy
+    return min(
+        components,
+        key=lambda item: float(np.hypot(item[1] - expected_x, item[2] - expected_y)),
     )
 
 
@@ -170,7 +196,9 @@ def place_check(
             roi.mean(axis=2) >= cfg.min_value
         )
     level = max(0, int(stack_level))
-    component = _largest_component(mask, level)
+    expected_x = cfg.expected_center_xy[0]
+    expected_y = float(np.clip(cfg.expected_center_xy[1] - level * cfg.level_y_step, 0, 1))
+    component = _target_component(mask, level, (expected_x, expected_y))
     if component is None:
         return PlaceCheckResult(
             placed=False,
@@ -178,8 +206,6 @@ def place_check(
             reason=FailureReason.PLACEMENT_FAILURE,
         )
     area, cx, cy, aspect, bottom, support_fraction = component
-    expected_x = cfg.expected_center_xy[0]
-    expected_y = float(np.clip(cfg.expected_center_xy[1] - level * cfg.level_y_step, 0, 1))
     expected_bottom = float(np.clip(cfg.expected_bottom_y - level * cfg.level_y_step, 0, 1))
     center_distance = float(np.hypot(cx - expected_x, cy - expected_y))
     center_score = max(0.0, 1.0 - center_distance / cfg.center_tolerance)
@@ -208,7 +234,7 @@ def place_check(
         and abs(bottom - expected_bottom) <= cfg.bottom_tolerance
         and (level == 0 or support_fraction >= cfg.min_support_fraction)
     )
-    if not geometry_ok or confidence < CONFIDENCE_MIN:
+    if not geometry_ok or confidence < cfg.min_confidence:
         return PlaceCheckResult(
             placed=False,
             confidence=confidence,

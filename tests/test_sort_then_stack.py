@@ -6,6 +6,13 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "sim" / "run_sort_then_stack.py"
+SORT_SCENE = (
+    Path(__file__).resolve().parents[1]
+    / "data"
+    / "fanuc_er4ia_hackathon_starter_v05 (1)"
+    / "fanuc_er4ia_sim"
+    / "sort_scene.py"
+)
 SPEC = importlib.util.spec_from_file_location("run_sort_then_stack", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -13,6 +20,26 @@ SPEC.loader.exec_module(MODULE)
 
 
 class TestSortThenStack(unittest.TestCase):
+    def test_post_placement_failure_stops_instead_of_reusing_pick_pose(self) -> None:
+        source = SORT_SCENE.read_text()
+        placement_gate = source.split('event["closed_loop_place"]', 1)[1].split(
+            "if pick_abort:", 1
+        )[0]
+
+        self.assertIn("RecoveryDecision.REGRASP", placement_gate)
+        self.assertIn("RecoveryDecision.SAFE_STOP", placement_gate)
+        self.assertIn("pick_abort = True", placement_gate)
+        self.assertNotIn("retry_grasp = True", placement_gate)
+
+    def test_placement_camera_is_refreshed_after_retreat(self) -> None:
+        source = SORT_SCENE.read_text()
+        placement_gate = source.split('if name == "retreat"', 1)[1].split(
+            'event["closed_loop_place"]', 1
+        )[0]
+
+        self.assertIn("world.step(render=render_enabled)", placement_gate)
+        self.assertLess(placement_gate.index("world.step"), placement_gate.index("get_rgba"))
+
     def test_build_stack_stage_uses_sorted_positions(self) -> None:
         colours = ["yellow", "yellow", "blue", "blue", "red", "red"]
         with tempfile.TemporaryDirectory() as tmp:

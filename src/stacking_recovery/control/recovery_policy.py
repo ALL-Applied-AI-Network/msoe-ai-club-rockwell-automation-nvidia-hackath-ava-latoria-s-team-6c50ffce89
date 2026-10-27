@@ -87,7 +87,11 @@ class RecoveryPolicy:
     ) -> tuple[RecoveryDecision, PlaceCheckResult]:
         result = self._place_check(verify_image_bgr, ctx.stack_level)
         self._log_place(ctx, result)
-        if result.placed and result.confidence >= CONFIDENCE_MIN:
+        # ``place_check`` owns the calibrated confidence threshold and only
+        # marks a result placed after its geometry, support and confidence
+        # gates pass.  Applying the unrelated global grasp threshold here can
+        # turn a valid ``placed=True`` result into a contradictory regrasp.
+        if result.placed:
             self._log_pick_duration(ctx)
             return RecoveryDecision.PROCEED, result
         if ctx.placement_attempt_index >= self.MAX_PLACEMENT_RETRIES:

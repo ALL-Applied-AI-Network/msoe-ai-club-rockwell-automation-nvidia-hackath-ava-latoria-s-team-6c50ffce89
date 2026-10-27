@@ -9,7 +9,7 @@ from stacking_recovery.control.recovery_policy import (
     RecoveryDecision,
     RecoveryPolicy,
 )
-from stacking_recovery.types import FailureReason, GraspCheckResult
+from stacking_recovery.types import FailureReason, GraspCheckResult, PlaceCheckResult
 
 
 class TestRecoveryPolicy(unittest.TestCase):
@@ -84,8 +84,6 @@ class TestRecoveryPolicy(unittest.TestCase):
         self.assertEqual(decision, RecoveryDecision.REGRASP)
 
     def test_placement_regrasp_then_stop(self):
-        from stacking_recovery.types import PlaceCheckResult
-
         def bad_place(_img, _level):
             return PlaceCheckResult(
                 placed=False,
@@ -98,6 +96,24 @@ class TestRecoveryPolicy(unittest.TestCase):
         img = np.zeros((10, 10, 3), dtype=np.uint8)
         decision, _ = policy.after_place(ctx, img)
         self.assertEqual(decision, RecoveryDecision.SAFE_STOP)
+
+    def test_placement_uses_verifier_calibrated_confidence(self):
+        def calibrated_good_place(_img, _level):
+            return PlaceCheckResult(
+                placed=True,
+                confidence=0.55,
+                reason=FailureReason.OK,
+            )
+
+        policy = RecoveryPolicy(place_check_fn=calibrated_good_place)
+        ctx = ManipulationContext("red", 4, 0.92)
+        decision, result = policy.after_place(
+            ctx,
+            np.zeros((10, 10, 3), dtype=np.uint8),
+        )
+
+        self.assertTrue(result.placed)
+        self.assertEqual(decision, RecoveryDecision.PROCEED)
 
 
 if __name__ == "__main__":

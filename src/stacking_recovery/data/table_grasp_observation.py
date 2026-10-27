@@ -63,9 +63,16 @@ def make_before_after_observation(
     *,
     crop_size: int = 256,
     min_std: float = 2.0,
+    min_mean_abs_change: float = 0.5,
     max_padded_fraction: float = 0.10,
 ) -> tuple[np.ndarray, ObservationQuality]:
-    """Return a horizontal before/after crop and basic capture diagnostics."""
+    """Return a horizontal before/after crop and basic capture diagnostics.
+
+    The before crop must contain enough visual detail to establish that the
+    target was visible.  A low-detail after crop is allowed when the pair has
+    changed meaningfully: after a successful pickup, the target's former
+    location can correctly become a nearly uniform view of the table.
+    """
     if before_bgr.shape != after_bgr.shape:
         raise ValueError("Before and after images must have the same shape")
     before, before_pad = _square_crop(before_bgr, center_uv, crop_size)
@@ -80,7 +87,9 @@ def make_before_after_observation(
     reason = None
     if padded > max_padded_fraction:
         reason = "crop_out_of_frame"
-    elif min(before_std, after_std) < min_std:
+    elif before_std < min_std:
+        reason = "blank_or_low_detail_crop"
+    elif after_std < min_std and change < min_mean_abs_change:
         reason = "blank_or_low_detail_crop"
     quality = ObservationQuality(
         valid=reason is None,

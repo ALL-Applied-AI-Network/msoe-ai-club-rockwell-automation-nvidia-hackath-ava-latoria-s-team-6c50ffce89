@@ -11,6 +11,10 @@ from stacking_recovery.vision.place_check import (
 
 
 class TestPlaceCheck(unittest.TestCase):
+    def test_rejects_invalid_calibrated_confidence(self):
+        with self.assertRaises(ValueError):
+            PlacementGeometryConfig(min_confidence=0.0)
+
     def test_dark_frame_fails(self):
         img = np.zeros((480, 640, 3), dtype=np.uint8)
         r = place_check(img, 0)
@@ -48,6 +52,26 @@ class TestPlaceCheck(unittest.TestCase):
         img[190:204, 140:260] = (30, 180, 220)
         r = place_check(img, 0)
         self.assertFalse(r.placed)
+
+    def test_target_component_beats_larger_robot_distractor(self):
+        img = np.zeros((400, 400, 3), dtype=np.uint8)
+        # A large saturated distractor represents a robot link in the ROI.
+        img[105:185, 105:150] = (30, 180, 220)
+        # The placed cube is smaller but centred at the expected target.
+        img[170:230, 170:230] = (30, 180, 220)
+        result = place_check(img, 0)
+        self.assertTrue(result.placed, result)
+
+    def test_nearest_component_still_fails_when_cube_is_off_target(self):
+        img = np.zeros((400, 400, 3), dtype=np.uint8)
+        img[105:185, 105:150] = (30, 180, 220)
+        img[155:205, 120:170] = (30, 180, 220)
+        result = place_check(
+            img,
+            0,
+            config=PlacementGeometryConfig(center_tolerance=0.12),
+        )
+        self.assertFalse(result.placed)
 
     def test_touching_multilevel_tower_checks_top_cube_not_whole_tower(self):
         config = PlacementGeometryConfig(

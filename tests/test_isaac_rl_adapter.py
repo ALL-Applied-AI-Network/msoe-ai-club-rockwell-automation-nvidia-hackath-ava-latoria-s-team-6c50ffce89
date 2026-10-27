@@ -50,6 +50,41 @@ class TestIsaacRLPlacementAdapter(unittest.TestCase):
         self.assertEqual(decision.actions, ("CORRECT_LEFT", "PLACE_CENTER"))
         self.assertEqual(decision.learned_correction_m, (-0.008, 0.0))
 
+    def test_place_is_masked_until_both_offset_axes_are_centered(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = QLearningAgent(seed=0)
+            both_shifted = StackingState(2, -1, 1, 2, 2, 0)
+            y_shifted = StackingState(2, 0, 1, 2, 2, 0)
+            centered = StackingState(2, 0, 0, 2, 2, 0)
+
+            # PLACE_CENTER deliberately has the highest value while shifted.
+            # The safety mask must still force a correction on each axis.
+            agent._values(both_shifted)[int(Action.PLACE_CENTER)] = 100.0
+            agent._values(both_shifted)[int(Action.CORRECT_RIGHT)] = 10.0
+            agent._values(y_shifted)[int(Action.PLACE_CENTER)] = 100.0
+            agent._values(y_shifted)[int(Action.CORRECT_FORWARD)] = 10.0
+            agent._values(centered)[int(Action.PLACE_CENTER)] = 10.0
+            path = Path(tmp) / "policy.json"
+            agent.save(path)
+
+            decision = IsaacRLPlacementAdapter(path).decide(
+                target_xy=[0.28, 0.10],
+                injected_offset_m=[-0.006746, 0.004301],
+                stack_level=2,
+            )
+
+        self.assertAlmostEqual(decision.commanded_xy[0], 0.28)
+        self.assertAlmostEqual(decision.commanded_xy[1], 0.10)
+        self.assertEqual(
+            decision.actions,
+            ("CORRECT_RIGHT", "CORRECT_FORWARD", "PLACE_CENTER"),
+        )
+        self.assertEqual(
+            decision.learned_correction_m,
+            (0.006746, -0.004301),
+        )
+        self.assertFalse(decision.safe_stop)
+
 
 if __name__ == "__main__":
     unittest.main()

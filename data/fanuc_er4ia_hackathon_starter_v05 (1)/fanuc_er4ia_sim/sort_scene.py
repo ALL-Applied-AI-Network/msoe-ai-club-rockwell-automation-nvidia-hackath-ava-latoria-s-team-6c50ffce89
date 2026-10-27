@@ -925,20 +925,47 @@ def main(argv=None, *, simulation_app=None):
                                     **collection_observation_meta,
                                     **collection_meta,
                                 )
-                        if name == "settle" and recovery_policy is not None:
+                        # Verify only after the protected vertical retreat.  At
+                        # the end of ``settle`` the open gripper is still over
+                        # the cube and dominates the table-camera mask, which
+                        # can create a false placement failure and an unsafe
+                        # retry at the cube's now-empty pickup location.
+                        if name == "retreat" and recovery_policy is not None:
                             verify_cam = cam if cam is not None else wrist_cam
                             if verify_cam is not None and closed_loop_ctx is not None:
-                                place_bgr = rgba_to_bgr(verify_cam.get_rgba())
+                                # Flush a few rendered frames after the retreat so
+                                # the verifier sees the new robot/cube pose rather
+                                # than the camera texture from the prior segment.
+                                for _ in range(30):
+                                    world.step(render=render_enabled)
+                                place_rgba = verify_cam.get_rgba()
+                                if place_rgba is None:
+                                    raise RuntimeError(
+                                        "Placement camera returned no image after retreat"
+                                    )
+                                place_bgr = rgba_to_bgr(place_rgba)
+                                cv2.imwrite(
+                                    str(
+                                        out
+                                        / (
+                                            "place_check_level_"
+                                            f"{int(pick.get('stack_level', 0)):02d}.png"
+                                        )
+                                    ),
+                                    place_bgr,
+                                )
                                 decision, place_result = recovery_policy.after_place(
                                     closed_loop_ctx, place_bgr
                                 )
                                 event["closed_loop_place"] = place_result.to_dict()
-                                if decision == RecoveryDecision.REGRASP:
-                                    placement_attempt += 1
-                                    grasp_attempt = 0
-                                    retry_grasp = True
-                                    break
-                                if decision == RecoveryDecision.SAFE_STOP:
+                                # A post-placement failure cannot safely reuse the
+                                # original pickup pose: the cube has already moved.
+                                # Stop and require a fresh scene acquisition instead
+                                # of reaching back toward an assumed empty location.
+                                if decision in (
+                                    RecoveryDecision.REGRASP,
+                                    RecoveryDecision.SAFE_STOP,
+                                ):
                                     pick_abort = True
                                     abort_reason = (
                                         f'Closed-loop placement stop at level {pick.get("stack_level")}: '

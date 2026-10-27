@@ -127,7 +127,15 @@ class IsaacRLPlacementAdapter:
         from an already-centered axis.  The learner still chooses whether and
         in what order to correct, retry, place, or stop.
         """
-        allowed = [Action.PLACE_CENTER]
+        # Never let a high Q-value turn a still-observed placement error into
+        # a release command.  RL may choose the correction order, but the
+        # existing safety layer only exposes PLACE_CENTER after both axes are
+        # inside the calibrated deadband.
+        allowed = (
+            [Action.PLACE_CENTER]
+            if state.offset_x == 0 and state.offset_y == 0
+            else []
+        )
         if state.offset_x < 0:
             allowed.append(Action.CORRECT_RIGHT)
         elif state.offset_x > 0:
