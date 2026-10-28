@@ -50,10 +50,14 @@ with `--allow-origin`; it never combines credentials with a wildcard origin.
 Endpoints:
 
 - `GET /health`
+- `GET /api/dashboard` — one frontend-ready object with display cards, metrics,
+  progress, media URLs and links to detailed data
 - `GET /api/status`
 - `GET /api/events?stage=all|sort|stack`
 - `GET /api/metrics`
 - `GET /api/artifacts`
+- `GET /api/video` — automatically serves the preferred MP4/WebM in the run
+  folder and supports browser byte-range requests
 - `GET /api/latest-frame?stage=sort|stack&camera=main|side`
 - `GET /artifacts/<run-relative-path>`
 - `GET /media/<run-relative-video-or-image>`
@@ -61,6 +65,23 @@ Endpoints:
 The bridge is read-only, blocks path traversal, supports video byte ranges, and
 never starts, stops, or commands the robot. JSON responses use `no-store` so a
 frontend can poll without seeing stale status.
+
+For Ana's dashboard, poll `/api/dashboard` instead of assembling the cards from
+several files. The response's `display` object maps directly to the current UI:
+`phase`, `prediction`, `confidence`, `state_machine_step`, `rl_correction`,
+`selected_action`, `grasp_result`, `cycle_time_s`, `placement_error_mm`, and
+`overall_success_rate`. Set the video source to
+`${apiBase}${dashboard.media.video_url}` when `video_url` is not null. The API
+discovers a recording after it is placed in the run folder; no filename needs
+to be hard-coded. The `timeline` array contains the real completed grasp events
+with cumulative `start_s` and `end_s` values, so the frontend can update the
+side panel as the recorded video's `currentTime` crosses an event boundary.
+`timeline_basis` states that these boundaries come from recorded cycle times,
+not hand-authored demo values.
+
+The browser still needs a browser-compatible recording. Prefer H.264 in an MP4
+container or WebM; an Isaac/OpenCV `mp4v` recording may need to be transcoded
+before Chrome or Edge can play it.
 
 The easiest hackathon frontend is React + TypeScript + Vite. Use the exported
 types in `liveStatus.ts`. Recorded MP4 playback can be embedded directly. The
