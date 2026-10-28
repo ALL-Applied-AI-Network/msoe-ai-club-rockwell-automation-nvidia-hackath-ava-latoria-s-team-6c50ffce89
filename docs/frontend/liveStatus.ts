@@ -84,6 +84,13 @@ export interface DashboardSnapshot {
     cycle_time_s: number | null;
     placement_error_mm: number | null;
     overall_success_rate: number | null;
+    motion_segment: string | null;
+    motion_segment_index: number | null;
+    motion_segment_total: number | null;
+    gripper_command: string | null;
+    tip_error_mm: number | null;
+    wrist_joint_deg: number | null;
+    motion_evidence: string | null;
   };
   planning: {
     status: "ready" | "waiting" | "blocked";
@@ -115,8 +122,15 @@ export interface DashboardSnapshot {
     cycle_time_s: number | null;
     placement_error_mm: number | null;
     overall_success_rate: number | null;
+    motion_segment: string | null;
+    motion_segment_index: number | null;
+    motion_segment_total: number | null;
+    gripper_command: string | null;
+    tip_error_mm: number | null;
+    wrist_joint_deg: number | null;
+    motion_evidence: string | null;
   }>;
-  timeline_basis: "cumulative_cycle_time";
+  timeline_basis: "cumulative_cycle_time" | "recorded_controller_segments";
   media: {
     video_url: string | null;
     video_content_type: string | null;

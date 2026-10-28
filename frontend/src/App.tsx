@@ -4,6 +4,7 @@ import {
   apiUrl,
   displayForVideoTime,
   fetchDashboard,
+  timelineEventForVideoTime,
   type ConnectionState,
   type DashboardSnapshot,
   type DisplayValues,
@@ -20,6 +21,13 @@ const EMPTY_DISPLAY: DisplayValues = {
   cycle_time_s: null,
   placement_error_mm: null,
   overall_success_rate: null,
+  motion_segment: null,
+  motion_segment_index: null,
+  motion_segment_total: null,
+  gripper_command: null,
+  tip_error_mm: null,
+  wrist_joint_deg: null,
+  motion_evidence: null,
 }
 
 function show(value: string | number | null, fallback = 'Not available'): string {
@@ -70,15 +78,24 @@ function App() {
     }
   }, [])
 
-  const display = useMemo(() => {
-    if (!snapshot) return EMPTY_DISPLAY
+  const playback = useMemo(() => {
+    if (!snapshot) return { display: EMPTY_DISPLAY, movementProgress: null }
     const timelineEnd = snapshot.timeline.at(-1)?.end_s ?? 0
     const timelineTime =
       videoDuration > 0 && timelineEnd > 0
         ? videoTime * (timelineEnd / videoDuration)
         : videoTime
-    return displayForVideoTime(snapshot, timelineTime)
+    const active = timelineEventForVideoTime(snapshot, timelineTime)
+    const movementProgress =
+      active && active.end_s > active.start_s
+        ? Math.min(1, Math.max(0, (timelineTime - active.start_s) / (active.end_s - active.start_s)))
+        : null
+    return {
+      display: displayForVideoTime(snapshot, timelineTime),
+      movementProgress,
+    }
   }, [snapshot, videoDuration, videoTime])
+  const display = playback.display
   const plan = snapshot?.planning
   const videoUrl = apiUrl(snapshot?.media.video_url ?? null)
 
@@ -148,6 +165,25 @@ function App() {
             </div>
 
             <div>
+              <dt>Movement</dt>
+              <dd>
+                {display.motion_segment_index === null || display.motion_segment_total === null
+                  ? show(display.motion_segment, 'Waiting')
+                  : `${show(display.motion_segment)} (${display.motion_segment_index}/${display.motion_segment_total})`}
+              </dd>
+            </div>
+
+            <div>
+              <dt>Movement progress</dt>
+              <dd>{playback.movementProgress === null ? 'Not available' : percent(playback.movementProgress)}</dd>
+            </div>
+
+            <div>
+              <dt>Gripper command</dt>
+              <dd>{show(display.gripper_command, 'Waiting')}</dd>
+            </div>
+
+            <div>
               <dt>RL correction</dt>
               <dd>{show(display.rl_correction, 'No correction requested')}</dd>
             </div>
@@ -170,6 +206,21 @@ function App() {
             <div>
               <dt>Placement error</dt>
               <dd>{display.placement_error_mm === null ? 'Not available' : `${display.placement_error_mm.toFixed(1)} mm`}</dd>
+            </div>
+
+            <div>
+              <dt>Recorded TCP tracking error</dt>
+              <dd>{display.tip_error_mm === null ? 'Not sampled for this movement' : `${display.tip_error_mm.toFixed(3)} mm`}</dd>
+            </div>
+
+            <div>
+              <dt>Recorded wrist joint</dt>
+              <dd>{display.wrist_joint_deg === null ? 'Not sampled for this movement' : `${display.wrist_joint_deg.toFixed(2)}°`}</dd>
+            </div>
+
+            <div>
+              <dt>Movement data source</dt>
+              <dd>{show(display.motion_evidence, 'Live telemetry')}</dd>
             </div>
 
             <div>

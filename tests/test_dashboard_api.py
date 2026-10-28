@@ -154,6 +154,72 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertEqual(payload["timeline"][0]["end_s"], 8.5)
         self.assertEqual(payload["timeline"][0]["state_machine_step"], "verify placement")
 
+    def test_archived_replay_expands_real_controller_movements(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            sort = run / "01_sort"
+            sort.mkdir()
+            (run / "end_to_end_metrics.json").write_text(
+                json.dumps(
+                    {
+                        "full_process_complete": True,
+                        "classifier": {
+                            "scored_grabs": 1,
+                            "correct": 1,
+                            "accuracy": 1.0,
+                        },
+                        "grabs": [
+                            {
+                                "stage": "sort",
+                                "grab": 1,
+                                "predicted_class": "GOOD",
+                                "confidence": 0.97,
+                                "pickup_verified": True,
+                                "placement_verified": True,
+                                "placement_error_mm": 0.2,
+                                "cycle_time_s": 68.0,
+                                "visual_gate": "proceed",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (sort / "execution_events.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "phase_measurements": {
+                                "descend": {
+                                    "tip_error_mm": 0.125,
+                                    "wrist_joint_deg": -11.5,
+                                },
+                                "lift": {
+                                    "tip_error_mm": 0.33,
+                                    "wrist_joint_deg": -11.2,
+                                },
+                            }
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            payload = _dashboard_snapshot(run)
+
+        self.assertEqual(payload["timeline_basis"], "recorded_controller_segments")
+        self.assertEqual(len(payload["timeline"]), 11)
+        self.assertEqual(payload["timeline"][0]["state_machine_step"], "approach")
+        self.assertEqual(payload["timeline"][0]["end_s"], 1.2)
+        self.assertEqual(payload["timeline"][1]["state_machine_step"], "descend")
+        self.assertEqual(payload["timeline"][1]["tip_error_mm"], 0.125)
+        self.assertIsNone(payload["timeline"][0]["overall_success_rate"])
+        self.assertIsNone(payload["timeline"][4]["prediction"])
+        self.assertEqual(payload["timeline"][5]["state_machine_step"], "carry")
+        self.assertEqual(payload["timeline"][5]["prediction"], "GOOD")
+        self.assertEqual(payload["timeline"][-1]["placement_error_mm"], 0.2)
+        self.assertEqual(payload["timeline"][-1]["overall_success_rate"], 1.0)
+        self.assertEqual(payload["timeline"][-1]["end_s"], 9.2)
+
     def test_physical_telemetry_uses_same_frontend_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp)

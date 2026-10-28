@@ -44,6 +44,33 @@ KEY_ARTIFACT_NAMES = {
 _RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)$")
 
 
+# Controller movements and durations used to render the archived twin run.
+# They let replay expose state-machine cadence instead of one summary row for
+# an entire pick-and-place cycle.
+_TRANSFER_SEGMENTS = (
+    ("approach", 1.2, "open", "Move above the selected cube"),
+    ("descend", 0.8, "open", "Descend to the grasp pose"),
+    ("close", 0.6, "closing", "Close the gripper"),
+    ("dwell", 0.5, "closed", "Hold and verify gripper seating"),
+    ("lift", 0.8, "closed", "Lift the cube vertically"),
+    ("carry", 1.4, "closed", "Carry the cube above its destination"),
+    ("lower", 0.8, "closed", "Lower to the placement pose"),
+    ("release", 0.6, "opening", "Release the cube"),
+    ("settle", 0.6, "open", "Let the placement settle"),
+    ("retreat", 0.8, "open", "Retreat vertically from the placement"),
+    ("home", 1.1, "open", "Return home and verify placement"),
+)
+_PROTECTED_STACK_SEGMENTS = (
+    *_TRANSFER_SEGMENTS[:6],
+    ("prelower", 0.75, "closed", "Lower above the protected stack zone"),
+    ("final_lower", 0.75, "closed", "Make the protected final approach"),
+    ("release", 0.8, "opening", "Release the cube gently"),
+    ("settle", 0.9, "open", "Let the tower settle"),
+    ("retreat", 1.1, "open", "Retreat vertically from the tower"),
+    ("home", 1.1, "open", "Return home and verify the tower"),
+)
+
+
 def _planning_values(value: Any) -> dict[str, Any]:
     """Return the safe, structured planner fields intended for the dashboard."""
     plan = value if isinstance(value, dict) else {}
@@ -253,7 +280,135 @@ def _display_values(
         "cycle_time_s": current.get("cycle_time_s"),
         "placement_error_mm": current.get("placement_error_mm"),
         "overall_success_rate": overall_success_rate,
+        "motion_segment": current.get("motion_segment"),
+        "motion_segment_index": current.get("motion_segment_index"),
+        "motion_segment_total": current.get("motion_segment_total"),
+        "gripper_command": current.get("gripper_command"),
+        "tip_error_mm": current.get("tip_error_mm"),
+        "wrist_joint_deg": current.get("wrist_joint_deg"),
+        "motion_evidence": current.get("motion_evidence"),
     }
+
+
+def _read_event_rows(path: Path) -> list[dict[str, Any]]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(value, list):
+        return []
+    return [row for row in value if isinstance(row, dict)]
+
+
+def _archived_motion_timeline(
+    run_dir: Path, summary_events: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Expand an archived run into its recorded controller movements.
+
+    The simulator saved one frame per interpolated controller target and also
+    saved end-of-segment measurements. Model outputs remain null until the
+    lift has completed because the classifier was evaluated at that point.
+    """
+    detailed_by_stage = {
+        "sort": _read_event_rows(run_dir / "01_sort" / "execution_events.json"),
+        "stack": _read_event_rows(run_dir / "02_stack" / "execution_events.json"),
+    }
+    if not any(detailed_by_stage.values()):
+        return []
+
+    stage_offsets = {"sort": 0, "stack": 0}
+    timeline: list[dict[str, Any]] = []
+    elapsed = 0.0
+    completed_grabs = 0
+    verified_placements = 0
+    for summary in summary_events:
+        stage = str(summary.get("stage") or "sort")
+        rows = detailed_by_stage.get(stage, [])
+        offset = stage_offsets.get(stage, 0)
+        if offset >= len(rows):
+            return []
+        detail = rows[offset]
+        stage_offsets[stage] = offset + 1
+        measurements = (
+            detail.get("phase_measurements")
+            if isinstance(detail.get("phase_measurements"), dict)
+            else {}
+        )
+        protected = "prelower" in measurements or "final_lower" in measurements
+        segments = _PROTECTED_STACK_SEGMENTS if protected else _TRANSFER_SEGMENTS
+        lift_index = next(
+            i for i, segment in enumerate(segments, start=1) if segment[0] == "lift"
+        )
+        rl = detail.get("rl_placement_decision")
+        rl_action = None
+        if isinstance(rl, dict):
+            raw_actions = rl.get("actions")
+            if isinstance(raw_actions, list) and raw_actions:
+                rl_action = str(raw_actions[-1])
+            elif rl.get("action") is not None:
+                rl_action = str(rl["action"])
+
+        for index, (name, duration, gripper, action) in enumerate(segments, start=1):
+            measurement = measurements.get(name)
+            if not isinstance(measurement, dict):
+                measurement = {}
+            pickup_known = index > lift_index
+            placement_known = name == "home"
+            event_values = {
+                **summary,
+                "predicted_class": summary.get("predicted_class") if pickup_known else None,
+                "confidence": summary.get("confidence") if pickup_known else None,
+                "pickup_verified": summary.get("pickup_verified") if pickup_known else None,
+                "placement_verified": (
+                    summary.get("placement_verified") if placement_known else None
+                ),
+                "placement_error_mm": (
+                    summary.get("placement_error_mm") if placement_known else None
+                ),
+                "cycle_time_s": summary.get("cycle_time_s") if placement_known else None,
+                "state_machine_step": name,
+                "selected_action": action,
+                "rl": (
+                    {"action": rl_action}
+                    if rl_action and name in {"carry", "lower", "prelower", "final_lower"}
+                    else {}
+                ),
+                "motion_segment": name,
+                "motion_segment_index": index,
+                "motion_segment_total": len(segments),
+                "gripper_command": gripper,
+                "tip_error_mm": measurement.get("tip_error_mm"),
+                "wrist_joint_deg": measurement.get("wrist_joint_deg"),
+                "motion_evidence": (
+                    "recorded end-of-segment measurement"
+                    if measurement
+                    else "recorded controller segment"
+                ),
+            }
+            completed_at_segment = completed_grabs + (1 if placement_known else 0)
+            verified_at_segment = verified_placements + (
+                1 if placement_known and summary.get("placement_verified") is True else 0
+            )
+            cumulative_success = (
+                verified_at_segment / completed_at_segment
+                if completed_at_segment
+                else None
+            )
+            display = _display_values(event_values, stage, cumulative_success)
+            timeline.append(
+                {
+                    "start_s": round(elapsed, 3),
+                    "end_s": round(elapsed + duration, 3),
+                    "stage": stage,
+                    "grab": summary.get("grab"),
+                    **display,
+                }
+            )
+            elapsed += duration
+        completed_grabs += 1
+        if summary.get("placement_verified") is True:
+            verified_placements += 1
+    return timeline
 
 
 def _dashboard_snapshot(run_dir: Path) -> dict[str, Any]:
@@ -305,29 +460,39 @@ def _dashboard_snapshot(run_dir: Path) -> dict[str, Any]:
     verified = int(metrics.get("verified_placements") or 0)
     success_rate = verified / completed if completed else None
     display = _display_values(current, str(normalized["phase"]), success_rate)
-    timeline: list[dict[str, Any]] = []
-    elapsed = 0.0
     raw_events = normalized["events"]
-    for event in raw_events:
-        if not isinstance(event, dict):
-            continue
-        duration = event.get("cycle_time_s")
-        duration_s = (
-            float(duration)
-            if isinstance(duration, (int, float)) and duration >= 0
-            else 0.0
-        )
-        event_display = _display_values(event, str(event.get("stage") or normalized["phase"]), None)
-        timeline.append(
-            {
-                "start_s": round(elapsed, 3),
-                "end_s": round(elapsed + duration_s, 3),
-                "stage": event.get("stage"),
-                "grab": event.get("grab"),
-                **event_display,
-            }
-        )
-        elapsed += duration_s
+    timeline = (
+        _archived_motion_timeline(run_dir, raw_events)
+        if normalized["mode"] == "recorded"
+        else []
+    )
+    timeline_basis = (
+        "recorded_controller_segments" if timeline else "cumulative_cycle_time"
+    )
+    if not timeline:
+        elapsed = 0.0
+        for event in raw_events:
+            if not isinstance(event, dict):
+                continue
+            duration = event.get("cycle_time_s")
+            duration_s = (
+                float(duration)
+                if isinstance(duration, (int, float)) and duration >= 0
+                else 0.0
+            )
+            event_display = _display_values(
+                event, str(event.get("stage") or normalized["phase"]), None
+            )
+            timeline.append(
+                {
+                    "start_s": round(elapsed, 3),
+                    "end_s": round(elapsed + duration_s, 3),
+                    "stage": event.get("stage"),
+                    "grab": event.get("grab"),
+                    **event_display,
+                }
+            )
+            elapsed += duration_s
     manifest = _artifact_manifest(run_dir)
     video = _video_file(run_dir)
     return {
@@ -348,7 +513,7 @@ def _dashboard_snapshot(run_dir: Path) -> dict[str, Any]:
         "progress": progress,
         "metrics": metrics,
         "timeline": timeline,
-        "timeline_basis": "cumulative_cycle_time",
+        "timeline_basis": timeline_basis,
         "media": {
             "video_url": "/api/video" if video is not None else None,
             "video_content_type": (

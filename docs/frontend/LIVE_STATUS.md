@@ -73,18 +73,21 @@ several files. The response's `display` object maps directly to the current UI:
 `overall_success_rate`. Set the video source to
 `${apiBase}${dashboard.media.video_url}` when `video_url` is not null. The API
 discovers a recording after it is placed in the run folder; no filename needs
-to be hard-coded. The `timeline` array contains the real completed grasp events
-with cumulative `start_s` and `end_s` values, so the frontend can update the
-side panel as the recorded video's `currentTime` crosses an event boundary.
-`timeline_basis` states that these boundaries come from recorded cycle times,
-not hand-authored demo values.
+to be hard-coded. The `timeline` array contains the recorded controller
+movements for completed runs: approach, descend, close, dwell, lift, carry,
+lower, release, settle, retreat, and home. Each row identifies its gripper
+command and includes the saved end-of-segment TCP error and wrist angle when
+the simulator recorded them. The frontend updates the side panel at every
+movement boundary and shows continuous progress inside the active movement.
+`timeline_basis` is `recorded_controller_segments` for this detailed replay.
 
 Completed runs that predate `live_status.json` are also supported. The API reads
-the real `grabs` array from `end_to_end_metrics.json`, preserves missing
-classifier scores as `null`, and constructs the timeline from each recorded
-`cycle_time_s`. The React player scales that cumulative timeline to the loaded
-recording's actual duration so seeking remains synchronized even if video
-encoding slightly changes its duration.
+the real model outputs from `end_to_end_metrics.json` and the controller details
+from each stage's `execution_events.json`. Missing classifier scores remain
+`null`; the UI never invents them. Model confidence appears only after lift,
+which is when that run performed its before/after grasp classification. The
+React player scales the controller timeline to the recording's actual duration
+so seeking remains synchronized even if video encoding changes its duration.
 
 The response also has a top-level `planning` object. It contains only the
 validated, allow-listed task plan that is safe to show: planner source
