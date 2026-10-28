@@ -60,3 +60,60 @@ export interface LiveStatus {
     stack_report: string;
   };
 }
+
+export interface DashboardSnapshot {
+  schema_version: "1.0";
+  run: {
+    id: string;
+    source: "simulation" | "physical_robot";
+    state: string;
+    phase: string;
+    mode: string;
+    updated_at: string | null;
+    result: string;
+    error: string | null;
+  };
+  display: {
+    phase: string;
+    prediction: string | null;
+    confidence: number | null;
+    state_machine_step: string;
+    rl_correction: string | null;
+    selected_action: string | null;
+    grasp_result: "pending" | "verified" | "failed";
+    cycle_time_s: number | null;
+    placement_error_mm: number | null;
+    overall_success_rate: number | null;
+  };
+  current: GraspEvent | Record<string, unknown> | null;
+  progress: Record<string, number | null>;
+  metrics: Record<string, number | boolean | null>;
+  timeline: Array<{
+    start_s: number;
+    end_s: number;
+    stage: string | null;
+    grab: number | null;
+    phase: string;
+    prediction: string | null;
+    confidence: number | null;
+    state_machine_step: string;
+    rl_correction: string | null;
+    selected_action: string | null;
+    grasp_result: "pending" | "verified" | "failed";
+    cycle_time_s: number | null;
+    placement_error_mm: number | null;
+    overall_success_rate: number | null;
+  }>;
+  timeline_basis: "cumulative_cycle_time";
+  media: {
+    video_url: string | null;
+    video_content_type: string | null;
+    latest_frames: Record<string, string>;
+  };
+  links: {
+    status: string;
+    events: string;
+    metrics: string;
+    artifacts: string;
+  };
+}

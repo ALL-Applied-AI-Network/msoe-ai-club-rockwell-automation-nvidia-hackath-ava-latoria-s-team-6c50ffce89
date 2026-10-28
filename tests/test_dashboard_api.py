@@ -13,7 +13,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from stacking_recovery.dashboard_api import create_server  # noqa: E402
+from stacking_recovery.dashboard_api import _dashboard_snapshot, create_server  # noqa: E402
 
 
 class TestDashboardAPI(unittest.TestCase):
@@ -21,7 +21,37 @@ class TestDashboardAPI(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.run = Path(self.tmp.name)
         (self.run / "live_status.json").write_text(
-            json.dumps({"state": "running", "progress": {"percent": 50}}),
+            json.dumps(
+                {
+                    "state": "running",
+                    "phase": "stack",
+                    "mode": "integrated",
+                    "progress": {"percent": 50, "completed_grabs": 2},
+                    "current": {
+                        "predicted_class": "GOOD",
+                        "confidence": 0.94,
+                        "pickup_verified": True,
+                        "placement_verified": True,
+                        "placement_error_mm": 3.2,
+                        "cycle_time_s": 8.5,
+                        "rl": {"action": "PLACE_CENTER", "actions": ["PLACE_CENTER"]},
+                    },
+                    "metrics": {"verified_placements": 2, "classifier_accuracy": 1.0},
+                    "events": [
+                        {
+                            "stage": "stack",
+                            "grab": 1,
+                            "predicted_class": "GOOD",
+                            "confidence": 0.94,
+                            "pickup_verified": True,
+                            "placement_verified": True,
+                            "placement_error_mm": 3.2,
+                            "cycle_time_s": 8.5,
+                            "rl": {"action": "PLACE_CENTER", "actions": ["PLACE_CENTER"]},
+                        }
+                    ],
+                }
+            ),
             encoding="utf-8",
         )
         sort = self.run / "01_sort"
@@ -88,6 +118,52 @@ class TestDashboardAPI(unittest.TestCase):
             self.assertEqual(response.status, 206)
             self.assertEqual(response.headers["Content-Range"], "bytes 2-5/10")
             self.assertEqual(response.read(), b"2345")
+        with self.get("/api/video", headers={"Range": "bytes=4-7"}) as response:
+            self.assertEqual(response.status, 206)
+            self.assertEqual(response.read(), b"4567")
+
+    def test_frontend_dashboard_contract(self) -> None:
+        with self.get("/api/dashboard") as response:
+            payload = json.load(response)
+
+        self.assertEqual(payload["schema_version"], "1.0")
+        self.assertEqual(payload["run"]["source"], "simulation")
+        self.assertEqual(payload["display"]["phase"], "stack")
+        self.assertEqual(payload["display"]["prediction"], "GOOD")
+        self.assertEqual(payload["display"]["confidence"], 0.94)
+        self.assertEqual(payload["display"]["rl_correction"], "PLACE_CENTER")
+        self.assertEqual(payload["display"]["grasp_result"], "verified")
+        self.assertEqual(payload["display"]["overall_success_rate"], 1.0)
+        self.assertEqual(payload["media"]["video_url"], "/api/video")
+        self.assertEqual(payload["timeline"][0]["start_s"], 0.0)
+        self.assertEqual(payload["timeline"][0]["end_s"], 8.5)
+        self.assertEqual(payload["timeline"][0]["state_machine_step"], "verify placement")
+
+    def test_physical_telemetry_uses_same_frontend_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "latest.json").write_text(
+                json.dumps(
+                    {
+                        "wall_time_utc": "2026-10-28T18:00:00Z",
+                        "rollout_index": 0,
+                        "policy": {"phase_after": "carry", "result": "pending"},
+                        "action": {"row_count": 3},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (run / "summary.json").write_text(
+                json.dumps({"steps_recorded": 12, "last_action_safe": True}),
+                encoding="utf-8",
+            )
+            payload = _dashboard_snapshot(run)
+
+        self.assertEqual(payload["run"]["source"], "physical_robot")
+        self.assertEqual(payload["display"]["state_machine_step"], "carry")
+        self.assertEqual(payload["display"]["selected_action"], "TCP motion chunk (3 targets)")
+        self.assertEqual(payload["display"]["grasp_result"], "pending")
+        self.assertTrue(payload["metrics"]["last_action_safe"])
 
     def test_cors_is_allowlisted(self) -> None:
         with self.get(
