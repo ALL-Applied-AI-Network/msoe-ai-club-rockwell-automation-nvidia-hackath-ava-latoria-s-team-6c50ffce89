@@ -85,6 +85,18 @@ export interface DashboardSnapshot {
     placement_error_mm: number | null;
     overall_success_rate: number | null;
   };
+  planning: {
+    status: "ready" | "waiting" | "blocked";
+    planner: "deterministic" | "gemini" | null;
+    instruction: string | null;
+    action: string | null;
+    source_color: string | null;
+    destination_color: string | null;
+    shape: string | null;
+    size_mm: number | null;
+    requires_clarification: boolean;
+    summary: string | null;
+  };
   current: GraspEvent | Record<string, unknown> | null;
   progress: Record<string, number | null>;
   metrics: Record<string, number | boolean | null>;

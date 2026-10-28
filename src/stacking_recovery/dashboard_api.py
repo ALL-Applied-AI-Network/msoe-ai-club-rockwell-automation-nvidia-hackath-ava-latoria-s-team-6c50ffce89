@@ -44,6 +44,47 @@ KEY_ARTIFACT_NAMES = {
 _RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)$")
 
 
+def _planning_values(value: Any) -> dict[str, Any]:
+    """Return the safe, structured planner fields intended for the dashboard."""
+    plan = value if isinstance(value, dict) else {}
+    action = plan.get("action")
+    source = plan.get("source_color")
+    destination = plan.get("destination_color")
+    shape = plan.get("shape")
+    size_mm = plan.get("size_mm")
+    requires_clarification = bool(plan.get("requires_clarification"))
+    complete = all((action, source, destination, shape))
+    status = (
+        "waiting"
+        if not plan
+        else "blocked"
+        if requires_clarification or not complete
+        else "ready"
+    )
+    summary = None
+    if action and source and destination:
+        object_name = " ".join(
+            str(item)
+            for item in (size_mm, "mm" if size_mm is not None else None, shape)
+            if item is not None
+        )
+        summary = (
+            f"{str(action).capitalize()} {source} {object_name} on {destination}"
+        ).strip()
+    return {
+        "status": status,
+        "planner": plan.get("planner"),
+        "instruction": plan.get("instruction"),
+        "action": action,
+        "source_color": source,
+        "destination_color": destination,
+        "shape": shape,
+        "size_mm": size_mm,
+        "requires_clarification": requires_clarification,
+        "summary": summary,
+    }
+
+
 def _read_json_object(path: Path) -> dict[str, Any]:
     """Return one JSON object, or an empty object while a producer is writing."""
     try:
@@ -119,6 +160,7 @@ def _physical_dashboard(run_dir: Path, latest: dict[str, Any]) -> dict[str, Any]
             "last_latency_ms": summary.get("last_latency_ms"),
             "last_action_safe": summary.get("last_action_safe"),
         },
+        "planning": _planning_values(policy.get("task_plan")),
         "result": result,
         "error": latest.get("error") or summary.get("telemetry_error"),
     }
@@ -170,6 +212,7 @@ def _dashboard_snapshot(run_dir: Path) -> dict[str, Any]:
             "current": status.get("current") if isinstance(status.get("current"), dict) else None,
             "progress": status.get("progress") if isinstance(status.get("progress"), dict) else {},
             "metrics": status.get("metrics") if isinstance(status.get("metrics"), dict) else {},
+            "planning": _planning_values(status.get("planning") or status.get("task_plan")),
             "result": status.get("state", "running"),
             "error": status.get("error"),
         }
@@ -187,6 +230,7 @@ def _dashboard_snapshot(run_dir: Path) -> dict[str, Any]:
                 "current": None,
                 "progress": {},
                 "metrics": {},
+                "planning": _planning_values(None),
                 "result": "pending",
                 "error": None,
             }
@@ -237,6 +281,7 @@ def _dashboard_snapshot(run_dir: Path) -> dict[str, Any]:
             "error": normalized["error"],
         },
         "display": display,
+        "planning": normalized["planning"],
         "current": normalized["current"],
         "progress": progress,
         "metrics": metrics,
@@ -377,7 +422,15 @@ def make_handler(config: DashboardAPIConfig) -> type[BaseHTTPRequestHandler]:
             body = (json.dumps(value, separators=(",", ":")) + "\n").encode("utf-8")
             self._start(status, "application/json; charset=utf-8", len(body))
             if self.command != "HEAD":
+                self._write(body)
+
+        def _write(self, body: bytes) -> bool:
+            """Write a response unless the browser has already left or refreshed."""
+            try:
                 self.wfile.write(body)
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                return False
+            return True
 
         def _error_json(self, status: HTTPStatus, message: str) -> None:
             self._json({"error": message, "status": int(status)}, status)
@@ -443,7 +496,8 @@ def make_handler(config: DashboardAPIConfig) -> type[BaseHTTPRequestHandler]:
                     chunk = stream.read(min(64 * 1024, remaining))
                     if not chunk:
                         break
-                    self.wfile.write(chunk)
+                    if not self._write(chunk):
+                        break
                     remaining -= len(chunk)
 
         def _route(self) -> None:

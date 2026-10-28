@@ -79,6 +79,14 @@ side panel as the recorded video's `currentTime` crosses an event boundary.
 `timeline_basis` states that these boundaries come from recorded cycle times,
 not hand-authored demo values.
 
+The response also has a top-level `planning` object. It contains only the
+validated, allow-listed task plan that is safe to show: planner source
+(`deterministic` or `gemini`), instruction, action, source and destination,
+object shape and size, a readable summary, and a `ready`, `waiting`, or
+`blocked` status. It never includes the Gemini key, prompt, or raw model
+response. The LLM may interpret an instruction, but it does not generate robot
+motion; the state machine and safety checks remain authoritative.
+
 The browser still needs a browser-compatible recording. Prefer H.264 in an MP4
 container or WebM; an Isaac/OpenCV `mp4v` recording may need to be transcoded
 before Chrome or Edge can play it.
@@ -87,6 +95,27 @@ The easiest hackathon frontend is React + TypeScript + Vite. Use the exported
 types in `liveStatus.ts`. Recorded MP4 playback can be embedded directly. The
 authenticated Brev WebRTC viewer should initially be an **Open live twin** link
 rather than an iframe.
+
+## Run Ana's dashboard
+
+In one terminal, start the read-only API for the run folder you want to show:
+
+```bash
+python scripts/serve_dashboard_api.py --run /workspace/team-data/e2e/sort-stack-visual-02
+```
+
+In another terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev -- --host 0.0.0.0
+```
+
+Vite sends `/api`, `/media`, and `/artifacts` to the local API on port 8765.
+For a separately hosted API, set `VITE_DASHBOARD_API_BASE` to its authenticated
+base URL before starting Vite. Do not put `GEMINI_API_KEY` or any other secret
+in a `VITE_` variable because Vite variables are visible in the browser.
 
 Fast simulator run:
 

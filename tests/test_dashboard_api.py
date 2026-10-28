@@ -26,6 +26,16 @@ class TestDashboardAPI(unittest.TestCase):
                     "state": "running",
                     "phase": "stack",
                     "mode": "integrated",
+                    "planning": {
+                        "planner": "deterministic",
+                        "instruction": "Place the red 10 mm cube on top of the blue 10 mm cube.",
+                        "action": "stack",
+                        "source_color": "red",
+                        "destination_color": "blue",
+                        "shape": "cube",
+                        "size_mm": 10,
+                        "requires_clarification": False,
+                    },
                     "progress": {"percent": 50, "completed_grabs": 2},
                     "current": {
                         "predicted_class": "GOOD",
@@ -134,6 +144,11 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertEqual(payload["display"]["rl_correction"], "PLACE_CENTER")
         self.assertEqual(payload["display"]["grasp_result"], "verified")
         self.assertEqual(payload["display"]["overall_success_rate"], 1.0)
+        self.assertEqual(payload["planning"]["status"], "ready")
+        self.assertEqual(payload["planning"]["planner"], "deterministic")
+        self.assertEqual(payload["planning"]["source_color"], "red")
+        self.assertEqual(payload["planning"]["destination_color"], "blue")
+        self.assertEqual(payload["planning"]["summary"], "Stack red 10 mm cube on blue")
         self.assertEqual(payload["media"]["video_url"], "/api/video")
         self.assertEqual(payload["timeline"][0]["start_s"], 0.0)
         self.assertEqual(payload["timeline"][0]["end_s"], 8.5)
@@ -147,7 +162,20 @@ class TestDashboardAPI(unittest.TestCase):
                     {
                         "wall_time_utc": "2026-10-28T18:00:00Z",
                         "rollout_index": 0,
-                        "policy": {"phase_after": "carry", "result": "pending"},
+                        "policy": {
+                            "phase_after": "carry",
+                            "result": "pending",
+                            "task_plan": {
+                                "planner": "gemini",
+                                "instruction": "Put the red cube onto the blue cube.",
+                                "action": "stack",
+                                "source_color": "red",
+                                "destination_color": "blue",
+                                "shape": "cube",
+                                "size_mm": 10,
+                                "requires_clarification": False,
+                            },
+                        },
                         "action": {"row_count": 3},
                     }
                 ),
@@ -163,7 +191,38 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertEqual(payload["display"]["state_machine_step"], "carry")
         self.assertEqual(payload["display"]["selected_action"], "TCP motion chunk (3 targets)")
         self.assertEqual(payload["display"]["grasp_result"], "pending")
+        self.assertEqual(payload["planning"]["status"], "ready")
+        self.assertEqual(payload["planning"]["planner"], "gemini")
         self.assertTrue(payload["metrics"]["last_action_safe"])
+
+    def test_missing_plan_is_explicitly_waiting(self) -> None:
+        (self.run / "live_status.json").write_text(
+            json.dumps({"state": "running", "phase": "starting"}),
+            encoding="utf-8",
+        )
+        payload = _dashboard_snapshot(self.run)
+        self.assertEqual(payload["planning"]["status"], "waiting")
+        self.assertIsNone(payload["planning"]["instruction"])
+
+    def test_incomplete_plan_remains_blocked(self) -> None:
+        (self.run / "live_status.json").write_text(
+            json.dumps(
+                {
+                    "state": "running",
+                    "phase": "starting",
+                    "planning": {
+                        "planner": "gemini",
+                        "instruction": "Move it over there.",
+                        "action": "stack",
+                        "requires_clarification": True,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        payload = _dashboard_snapshot(self.run)
+        self.assertEqual(payload["planning"]["status"], "blocked")
+        self.assertTrue(payload["planning"]["requires_clarification"])
 
     def test_cors_is_allowlisted(self) -> None:
         with self.get(
