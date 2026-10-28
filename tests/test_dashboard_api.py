@@ -195,6 +195,60 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertEqual(payload["planning"]["planner"], "gemini")
         self.assertTrue(payload["metrics"]["last_action_safe"])
 
+    def test_completed_archived_run_uses_real_grasp_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "end_to_end_metrics.json").write_text(
+                json.dumps(
+                    {
+                        "full_process_complete": True,
+                        "classifier": {
+                            "scored_grabs": 1,
+                            "correct": 1,
+                            "accuracy": 1.0,
+                        },
+                        "grabs": [
+                            {
+                                "stage": "sort",
+                                "grab": 1,
+                                "predicted_class": "GOOD",
+                                "confidence": 0.91,
+                                "pickup_verified": True,
+                                "placement_verified": True,
+                                "placement_error_mm": 0.2,
+                                "cycle_time_s": 7.0,
+                                "visual_gate": "proceed",
+                            },
+                            {
+                                "stage": "stack",
+                                "grab": 1,
+                                "predicted_class": None,
+                                "confidence": None,
+                                "pickup_verified": True,
+                                "placement_verified": True,
+                                "placement_error_mm": 0.4,
+                                "cycle_time_s": 8.0,
+                                "visual_gate": "safe_stop",
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (run / "original.webm").write_bytes(b"video")
+            payload = _dashboard_snapshot(run)
+
+        self.assertEqual(payload["run"]["state"], "completed")
+        self.assertEqual(payload["run"]["mode"], "recorded")
+        self.assertEqual(payload["progress"]["completed_grabs"], 2)
+        self.assertEqual(payload["metrics"]["classifier_coverage"], 0.5)
+        self.assertEqual(payload["display"]["prediction"], None)
+        self.assertEqual(payload["display"]["selected_action"], "safe_stop")
+        self.assertEqual(payload["timeline"][0]["start_s"], 0.0)
+        self.assertEqual(payload["timeline"][1]["start_s"], 7.0)
+        self.assertEqual(payload["timeline"][1]["end_s"], 15.0)
+        self.assertEqual(payload["media"]["video_url"], "/api/video")
+
     def test_missing_plan_is_explicitly_waiting(self) -> None:
         (self.run / "live_status.json").write_text(
             json.dumps({"state": "running", "phase": "starting"}),

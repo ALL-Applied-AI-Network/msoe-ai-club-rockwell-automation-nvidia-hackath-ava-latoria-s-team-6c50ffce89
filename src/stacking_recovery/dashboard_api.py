@@ -160,9 +160,66 @@ def _physical_dashboard(run_dir: Path, latest: dict[str, Any]) -> dict[str, Any]
             "last_latency_ms": summary.get("last_latency_ms"),
             "last_action_safe": summary.get("last_action_safe"),
         },
+        "events": [],
         "planning": _planning_values(policy.get("task_plan")),
         "result": result,
         "error": latest.get("error") or summary.get("telemetry_error"),
+    }
+
+
+def _archived_simulation_dashboard(run_dir: Path) -> dict[str, Any] | None:
+    """Normalize a completed run that predates the live-status sidecar."""
+    archived = _read_json_object(run_dir / "end_to_end_metrics.json")
+    events = archived.get("grabs")
+    if not isinstance(events, list) or not events:
+        return None
+    valid_events = [event for event in events if isinstance(event, dict)]
+    if not valid_events:
+        return None
+    classifier = (
+        archived.get("classifier")
+        if isinstance(archived.get("classifier"), dict)
+        else {}
+    )
+    completed = len(valid_events)
+    scored = int(classifier.get("scored_grabs") or 0)
+    verified_placements = sum(
+        1 for event in valid_events if event.get("placement_verified") is True
+    )
+    successful_pickups = sum(
+        1 for event in valid_events if event.get("pickup_verified") is True
+    )
+    state = "completed" if archived.get("full_process_complete") else "failed"
+    return {
+        "source": "simulation",
+        "state": state,
+        "phase": str(valid_events[-1].get("stage") or "complete"),
+        "mode": "recorded",
+        "updated_at": None,
+        "current": valid_events[-1],
+        "progress": {
+            "completed_grabs": completed,
+            "total_grabs": completed,
+            "percent": 100 if state == "completed" else None,
+            "sort_completed": sum(
+                1 for event in valid_events if event.get("stage") == "sort"
+            ),
+            "stack_completed": sum(
+                1 for event in valid_events if event.get("stage") == "stack"
+            ),
+        },
+        "metrics": {
+            "successful_pickups": successful_pickups,
+            "verified_placements": verified_placements,
+            "classifier_scored": scored,
+            "classifier_correct": int(classifier.get("correct") or 0),
+            "classifier_accuracy": classifier.get("accuracy"),
+            "classifier_coverage": scored / completed if completed else None,
+        },
+        "events": valid_events,
+        "planning": _planning_values(None),
+        "result": "success" if state == "completed" else "failed",
+        "error": None,
     }
 
 
@@ -212,15 +269,19 @@ def _dashboard_snapshot(run_dir: Path) -> dict[str, Any]:
             "current": status.get("current") if isinstance(status.get("current"), dict) else None,
             "progress": status.get("progress") if isinstance(status.get("progress"), dict) else {},
             "metrics": status.get("metrics") if isinstance(status.get("metrics"), dict) else {},
+            "events": status.get("events") if isinstance(status.get("events"), list) else [],
             "planning": _planning_values(status.get("planning") or status.get("task_plan")),
             "result": status.get("state", "running"),
             "error": status.get("error"),
         }
     else:
         latest = _read_json_object(run_dir / "latest.json")
+        archived = _archived_simulation_dashboard(run_dir)
         normalized = (
             _physical_dashboard(run_dir, latest)
             if latest
+            else archived
+            if archived is not None
             else {
                 "source": "simulation",
                 "state": "waiting",
@@ -230,6 +291,7 @@ def _dashboard_snapshot(run_dir: Path) -> dict[str, Any]:
                 "current": None,
                 "progress": {},
                 "metrics": {},
+                "events": [],
                 "planning": _planning_values(None),
                 "result": "pending",
                 "error": None,
@@ -245,7 +307,7 @@ def _dashboard_snapshot(run_dir: Path) -> dict[str, Any]:
     display = _display_values(current, str(normalized["phase"]), success_rate)
     timeline: list[dict[str, Any]] = []
     elapsed = 0.0
-    raw_events = status.get("events") if isinstance(status.get("events"), list) else []
+    raw_events = normalized["events"]
     for event in raw_events:
         if not isinstance(event, dict):
             continue

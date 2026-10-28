@@ -35,6 +35,7 @@ function App() {
   const [connection, setConnection] = useState<ConnectionState>('connecting')
   const [message, setMessage] = useState('Connecting to the run data…')
   const [videoTime, setVideoTime] = useState(0)
+  const [videoDuration, setVideoDuration] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -49,6 +50,8 @@ function App() {
         setMessage(
           next.run.source === 'physical_robot'
             ? 'Live physical-robot telemetry'
+            : next.run.mode === 'recorded'
+              ? 'Recorded simulation data'
             : 'Live simulation data',
         )
       } catch (error) {
@@ -67,10 +70,15 @@ function App() {
     }
   }, [])
 
-  const display = useMemo(
-    () => (snapshot ? displayForVideoTime(snapshot, videoTime) : EMPTY_DISPLAY),
-    [snapshot, videoTime],
-  )
+  const display = useMemo(() => {
+    if (!snapshot) return EMPTY_DISPLAY
+    const timelineEnd = snapshot.timeline.at(-1)?.end_s ?? 0
+    const timelineTime =
+      videoDuration > 0 && timelineEnd > 0
+        ? videoTime * (timelineEnd / videoDuration)
+        : videoTime
+    return displayForVideoTime(snapshot, timelineTime)
+  }, [snapshot, videoDuration, videoTime])
   const plan = snapshot?.planning
   const videoUrl = apiUrl(snapshot?.media.video_url ?? null)
 
@@ -93,6 +101,7 @@ function App() {
               preload="metadata"
               src={videoUrl}
               onTimeUpdate={(event) => setVideoTime(event.currentTarget.currentTime)}
+              onLoadedMetadata={(event) => setVideoDuration(event.currentTarget.duration)}
             >
               Your browser does not support video playback.
             </video>
@@ -104,7 +113,8 @@ function App() {
           )}
 
           <p className="video-note">
-            The information on the right follows the recorded run as you play or seek.
+            The information on the right follows the run's recorded event timestamps as you
+            play or seek.
           </p>
         </section>
 

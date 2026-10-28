@@ -85,7 +85,12 @@ export function displayForVideoTime(
   const active = snapshot.timeline.find(
     (event) => currentTime >= event.start_s && currentTime < event.end_s,
   )
-  if (active) return active
+  if (active) {
+    return {
+      ...active,
+      overall_success_rate: snapshot.display.overall_success_rate,
+    }
+  }
   if (currentTime >= snapshot.timeline[snapshot.timeline.length - 1].end_s) {
     return snapshot.timeline[snapshot.timeline.length - 1]
   }

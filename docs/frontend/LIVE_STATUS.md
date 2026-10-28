@@ -79,6 +79,13 @@ side panel as the recorded video's `currentTime` crosses an event boundary.
 `timeline_basis` states that these boundaries come from recorded cycle times,
 not hand-authored demo values.
 
+Completed runs that predate `live_status.json` are also supported. The API reads
+the real `grabs` array from `end_to_end_metrics.json`, preserves missing
+classifier scores as `null`, and constructs the timeline from each recorded
+`cycle_time_s`. The React player scales that cumulative timeline to the loaded
+recording's actual duration so seeking remains synchronized even if video
+encoding slightly changes its duration.
+
 The response also has a top-level `planning` object. It contains only the
 validated, allow-listed task plan that is safe to show: planner source
 (`deterministic` or `gemini`), instruction, action, source and destination,
