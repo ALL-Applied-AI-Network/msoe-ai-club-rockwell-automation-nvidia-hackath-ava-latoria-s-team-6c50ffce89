@@ -86,5 +86,44 @@ function App() {
     </main>
   )
 }
+<section className="workflow-section" aria-labelledby="workflow-title">
+  <h2 id="workflow-title">How the system works</h2>
+  <p className="workflow-intro">
+    The system uses feedback to decide whether to continue, recover,
+    or stop safely.
+  </p>
+
+  <ol className="workflow-list">
+    <li>
+      <h3>Observe</h3>
+      <p>Capture camera observations of the object and grasp.</p>
+    </li>
+    <li>
+      <h3>Verify</h3>
+      <p>
+        Classify grasp quality and check confidence and camera validity.
+      </p>
+    </li>
+    <li>
+      <h3>Decide</h3>
+      <p>
+        Use the state machine to continue the task or select a bounded
+        recovery step.
+      </p>
+    </li>
+    <li>
+      <h3>Place and check</h3>
+      <p>
+        Apply permitted placement adjustments and verify the result
+        before continuing.
+      </p>
+    </li>
+  </ol>
+
+  <p className="project-footnote">
+    This page presents a simulation demonstration. The interface does
+    not command the physical robot.
+  </p>
+</section>
 
 export default App

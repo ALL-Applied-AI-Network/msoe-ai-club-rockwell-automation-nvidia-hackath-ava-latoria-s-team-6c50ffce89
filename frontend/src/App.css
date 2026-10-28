@@ -147,3 +147,99 @@ body {
     padding: 24px 16px;
   }
 }
+
+.project-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+.project-overview h2 {
+  margin-bottom: 12px;
+  font-size: 18px;
+}
+
+.project-overview p {
+  margin: 0;
+  color: #b0bed0;
+  line-height: 1.7;
+}
+
+.workflow-section {
+  margin-top: 36px;
+}
+
+.workflow-section > h2 {
+  margin-bottom: 8px;
+  color: #f5f7fc;
+}
+
+.workflow-intro {
+  color: #b0bed0;
+  line-height: 1.6;
+}
+
+.workflow-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  padding: 0;
+  margin-top: 20px;
+  list-style: none;
+  counter-reset: workflow;
+}
+
+.workflow-list li {
+  counter-increment: workflow;
+  padding: 22px;
+  background: #192538;
+  border: 1px solid #344258;
+  border-radius: 12px;
+}
+
+.workflow-list li::before {
+  content: counter(workflow);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 12px;
+  border-radius: 50%;
+  background: #71d6bb;
+  color: #101827;
+  font-weight: bold;
+}
+
+.workflow-list h3 {
+  margin: 0 0 10px;
+  color: #f5f7fc;
+}
+
+.workflow-list p {
+  margin: 0;
+  color: #b0bed0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.project-footnote {
+  color: #b0bed0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (max-width: 1000px) {
+  .project-overview,
+  .workflow-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .project-overview,
+  .workflow-list {
+    grid-template-columns: 1fr;
+  }
+}
