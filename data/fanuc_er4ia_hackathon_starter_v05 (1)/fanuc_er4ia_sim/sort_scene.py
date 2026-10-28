@@ -268,6 +268,15 @@ def main(argv=None, *, simulation_app=None):
             "required by the integrated runner"
         ),
     )
+    ap.add_argument(
+        "--skip-place-check",
+        action="store_true",
+        help=(
+            "skip the single-site visual placement gate and rely on simulator "
+            "geometry; intended for sorting plans whose destinations span "
+            "multiple bins"
+        ),
+    )
     a = ap.parse_args(argv)
     if a.fps != 30:
         ap.error("Use 30 fps: two 1/60 s physics steps per video frame")
@@ -930,7 +939,11 @@ def main(argv=None, *, simulation_app=None):
                         # the cube and dominates the table-camera mask, which
                         # can create a false placement failure and an unsafe
                         # retry at the cube's now-empty pickup location.
-                        if name == "retreat" and recovery_policy is not None:
+                        if (
+                            name == "retreat"
+                            and recovery_policy is not None
+                            and not a.skip_place_check
+                        ):
                             verify_cam = cam if cam is not None else wrist_cam
                             if verify_cam is not None and closed_loop_ctx is not None:
                                 # Flush a few rendered frames after the retreat so

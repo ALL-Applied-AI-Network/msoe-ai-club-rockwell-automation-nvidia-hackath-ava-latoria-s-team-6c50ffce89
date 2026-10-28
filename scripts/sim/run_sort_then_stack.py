@@ -456,10 +456,13 @@ def stage_argv(
     vision_config: Path,
     integrated: bool = False,
     placement_config: Path | None = None,
+    skip_place_check: bool = False,
 ) -> list[str]:
     argv = ["--run", str(run_dir), "--out", str(frames_dir)]
     if placement_config is not None:
         argv.extend(["--placement-config", str(placement_config)])
+    if skip_place_check:
+        argv.append("--skip-place-check")
     if fast:
         argv.extend(["--sim-speedup", "1.5"])
     if physics_only:
@@ -504,6 +507,7 @@ def run_stage(
     vision_config: Path,
     integrated: bool = False,
     placement_config: Path | None = None,
+    skip_place_check: bool = False,
 ) -> dict[str, Any]:
     argv = stage_argv(
         run_dir,
@@ -514,6 +518,7 @@ def run_stage(
         vision_config=vision_config,
         integrated=integrated,
         placement_config=placement_config,
+        skip_place_check=skip_place_check,
     )
     sort_scene.main(argv, simulation_app=app)
     return read_json(run_dir / "execution_report.json")
@@ -615,6 +620,11 @@ def main() -> int:
             vision_config=args.vision_config.resolve(),
             integrated=args.integrated_demo,
             placement_config=args.placement_config.resolve(),
+            # The sort stage has several destination bins.  The placement
+            # camera configuration is calibrated only for the single tower
+            # site, so applying it here creates false failures even when
+            # simulator geometry confirms an exact sort placement.
+            skip_place_check=True,
         )
         build_stack_stage(sort_dir, stack_dir, use_rl=use_rl)
         live.set_phase("stack")

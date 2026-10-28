@@ -33,12 +33,24 @@ class TestSortThenStack(unittest.TestCase):
 
     def test_placement_camera_is_refreshed_after_retreat(self) -> None:
         source = SORT_SCENE.read_text()
-        placement_gate = source.split('if name == "retreat"', 1)[1].split(
+        placement_gate = source.split(
+            "# Verify only after the protected vertical retreat.", 1
+        )[1].split(
             'event["closed_loop_place"]', 1
         )[0]
 
         self.assertIn("world.step(render=render_enabled)", placement_gate)
         self.assertLess(placement_gate.index("world.step"), placement_gate.index("get_rgba"))
+
+    def test_visual_place_gate_can_be_skipped_for_multi_bin_sorting(self) -> None:
+        source = SORT_SCENE.read_text()
+        placement_gate = source.split(
+            "# Verify only after the protected vertical retreat.", 1
+        )[1].split(
+            'event["closed_loop_place"]', 1
+        )[0]
+
+        self.assertIn("not a.skip_place_check", placement_gate)
 
     def test_build_stack_stage_uses_sorted_positions(self) -> None:
         colours = ["yellow", "yellow", "blue", "blue", "red", "red"]
@@ -148,6 +160,22 @@ class TestSortThenStack(unittest.TestCase):
         )
         self.assertNotIn("--rl-vision-observe-only", argv)
         self.assertNotIn("--physics-only", argv)
+
+    def test_sort_stage_can_skip_tower_specific_place_check(self) -> None:
+        argv = MODULE.stage_argv(
+            Path("run"),
+            Path("frames"),
+            physics_only=False,
+            fast=False,
+            checkpoint=Path("rl.json"),
+            vision_config=Path("vision.yaml"),
+            integrated=True,
+            placement_config=Path("placement.json"),
+            skip_place_check=True,
+        )
+
+        self.assertIn("--skip-place-check", argv)
+        self.assertIn("--placement-config", argv)
 
     def test_live_status_is_frontend_friendly(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
