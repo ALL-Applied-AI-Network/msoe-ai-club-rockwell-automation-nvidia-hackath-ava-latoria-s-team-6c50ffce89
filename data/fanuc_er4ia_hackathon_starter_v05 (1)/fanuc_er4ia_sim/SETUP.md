@@ -41,9 +41,10 @@ To open the scene interactively, run `"$ISAAC/python.sh" build_scene.py`.
 
 ## 3. Cosmos3-Nano
 
-Use a separate environment with CUDA-enabled PyTorch, compatible Transformers,
-and NVIDIA's `transformers-cosmos3` package/framework. Obtain Cosmos3-Nano model
-weights separately; these large dependencies are not in the starter.
+Use a separate environment with CUDA-enabled PyTorch and Transformers 5.11 or
+newer. Transformers loads only the Cosmos3 Reasoner weights, which fits on a
+24 GB NVIDIA L4. Obtain the Cosmos3-Nano weights separately; these large
+dependencies are not in the starter.
 
 ```bash
 export COSMOS=/path/to/cosmos-environment/bin/python
@@ -53,15 +54,8 @@ export COSMOS3_NANO_PATH=/path/to/Cosmos3-Nano/snapshot
 
 If the environment uses uv instead of pip:
 `uv pip install --python "$COSMOS" -r requirements-cosmos.txt`.
-The snapshot must contain `config.json` and the model/processor files.
-If the framework package is not installed, set its checkout location:
-
-```bash
-export COSMOS3_ROOT=/path/to/cosmos-framework
-```
-
-That directory must contain `packages/transformers-cosmos3/transformers_cosmos3/`.
-With no explicit snapshot, model discovery uses the Hugging Face cache;
+The snapshot must contain `config.json` and the model/processor files. With no
+explicit snapshot, model discovery uses the Hugging Face cache;
 `HF_HOME` or `HF_HUB_CACHE` can select its location.
 
 Check dependencies and model loading before a complete run:
@@ -71,8 +65,8 @@ Check dependencies and model loading before a complete run:
 "$COSMOS" -c 'from perceive import load_model; model, processor = load_model(); print("Model ready")'
 ```
 
-CUDA must be available. The second command also checks framework imports and
-weights, and exits after loading to release GPU memory.
+CUDA must be available. The second command checks the official Transformers
+integration and weights, then exits after loading to release GPU memory.
 
 ## 4. Run and verify
 

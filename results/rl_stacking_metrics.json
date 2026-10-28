@@ -1,0 +1,27 @@
+{
+  "training": {
+    "episodes": 50000,
+    "mean_reward_last_100": 60.625,
+    "success_rate_last_100": 0.75,
+    "visited_states": 725
+  },
+  "rl_evaluation": {
+    "episodes": 2000.0,
+    "mean_reward": 53.14825,
+    "success_rate": 0.635,
+    "safe_stop_rate": 0.2325,
+    "collapse_rate": 0.132,
+    "drop_rate": 0.0
+  },
+  "open_loop_baseline": {
+    "episodes": 2000.0,
+    "mean_reward": -8.22,
+    "success_rate": 0.0905,
+    "safe_stop_rate": 0.1565,
+    "collapse_rate": 0.753,
+    "drop_rate": 0.0
+  },
+  "success_rate_lift": 0.5445,
+  "scope": "simulation-only high-level decisions; no direct joint control",
+  "seed": 42
+}

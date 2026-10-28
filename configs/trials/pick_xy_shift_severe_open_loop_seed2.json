@@ -1,0 +1,7 @@
+{
+  "condition_id": "pick_xy_shift_train",
+  "seed": 2,
+  "policy": "open_loop",
+  "finger": "stock_aa_scallop",
+  "pick_xy_offset_m": [0.008, 0.0]
+}

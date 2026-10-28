@@ -1,0 +1,30 @@
+{
+  "training": {
+    "episodes": 200000,
+    "mean_reward_last_100": 49.505,
+    "success_rate_last_100": 0.62,
+    "visited_states": 728
+  },
+  "rl_evaluation": {
+    "episodes": 10000.0,
+    "mean_reward": 45.8242,
+    "success_rate": 0.5361,
+    "safe_stop_rate": 0.2759,
+    "collapse_rate": 0.1164,
+    "drop_rate": 0.0
+  },
+  "open_loop_baseline": {
+    "episodes": 10000.0,
+    "mean_reward": -8.0169,
+    "success_rate": 0.0964,
+    "safe_stop_rate": 0.1386,
+    "collapse_rate": 0.765,
+    "drop_rate": 0.0
+  },
+  "success_rate_lift": 0.43970000000000004,
+  "scope": "simulation-only high-level decisions; no direct joint control",
+  "seed": 142,
+  "resumed_from": "models\\rl_stacking_qtable.json",
+  "selected": false,
+  "selection_reason": "Rejected: 0.5361 success versus 0.6455 for the original checkpoint on the same 10,000 evaluation seeds."
+}

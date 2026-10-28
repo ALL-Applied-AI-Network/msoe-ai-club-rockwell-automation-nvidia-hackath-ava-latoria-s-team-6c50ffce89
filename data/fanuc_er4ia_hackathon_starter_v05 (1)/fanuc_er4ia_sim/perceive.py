@@ -6,11 +6,11 @@ Stage 2: scene understanding with Cosmos3-Nano (runs in the cosmos venv).
 Reads the table image, identifies cube colours/locations and reports
 image-measured tabletop poses. Writes detections.json and raw crop replies.
 
-Runtime notes, taken from the working AOI setup on this machine:
-  - transformers_cosmos3.Cosmos3ForConditionalGeneration, not a Cosmos 2.x path
-  - AutoConfig must be loaded explicitly and passed to from_pretrained, to dodge
-    a transformers bug where the model_type heuristic replaces the config with
-    vision_config and drops text_config.rope_scaling
+Runtime notes:
+  - transformers.Cosmos3OmniForConditionalGeneration is the supported
+    Reasoner-only load path for Cosmos3-Nano
+  - the Transformers integration drops generator, audio, and action weights, so
+    image reasoning fits on a 24 GB L4
 """
 
 import argparse, json, os, re, sys
@@ -25,16 +25,22 @@ def _find_nano():
         if not (checkpoint / "config.json").is_file():
             raise SystemExit(f"Model snapshot is missing config.json: {checkpoint}")
         return checkpoint
-    cache_home = Path(
-        os.environ.get(
-            "HF_HOME",
-            str(
-                Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
-                / "huggingface"
-            ),
-        )
-    ).expanduser()
-    hub = Path(os.environ.get("HF_HUB_CACHE", str(cache_home / "hub"))).expanduser()
+    selected_hub = os.environ.get("HF_HUB_CACHE")
+    if selected_hub:
+        hub = Path(selected_hub).expanduser()
+    else:
+        hf_home = os.environ.get("HF_HOME")
+        if hf_home:
+            cache_home = Path(hf_home).expanduser()
+        else:
+            xdg_cache = os.environ.get("XDG_CACHE_HOME")
+            cache_root = (
+                Path(xdg_cache).expanduser()
+                if xdg_cache
+                else Path.home() / ".cache"
+            )
+            cache_home = cache_root / "huggingface"
+        hub = cache_home / "hub"
     base = hub / "models--nvidia--Cosmos3-Nano"
     snapshots = sorted((base / "snapshots").glob("*/config.json"))
     if not snapshots:
@@ -43,20 +49,6 @@ def _find_nano():
             "to the downloaded snapshot, or configure HF_HOME/HF_HUB_CACHE."
         )
     return snapshots[-1].parent
-
-
-def _configure_cosmos_imports():
-    """Use an optional framework checkout; installed packages also work."""
-    checkout = os.environ.get("COSMOS3_ROOT")
-    if checkout:
-        root = Path(checkout).expanduser().resolve()
-        package = root / "packages" / "transformers-cosmos3"
-        if not (package / "transformers_cosmos3").is_dir():
-            raise SystemExit(
-                f"COSMOS3_ROOT does not contain transformers-cosmos3: {root}"
-            )
-        sys.path.insert(0, str(package))
-        sys.path.insert(0, str(root))
 
 
 PROMPT = """You are the vision system for a robot arm working at a bench.
@@ -141,7 +133,9 @@ bbox is [x_min,y_min,x_max,y_max]. Use category cube, and colour yellow, blue,
 red, or unknown if ambiguous. Up to 12 cubes may be present."""
 
 
-def audit_stack_colours(model, processor, image_path, parsed, run):
+def audit_stack_colours(
+    model, processor, image_path, parsed, run, *, local_only=False
+):
     """Revisit missing colours in full and local views; no ground truth input."""
     from collections import Counter
     import cv2
@@ -207,17 +201,28 @@ left to right and y top to bottom. If none are visible, use {{"objects":[]}}."""
             ]
             return normalize(objects, width, H, x_offset)
 
-        replacements = query(image_path, "audit", W)
+        replacements = [] if local_only else query(image_path, "audit", W)
         if len(replacements) != 2:
             # Image-only proposals for tiny blocks missed in the wide view.
-            # Colour/size segmentation proposes patches; Cosmos must confirm
-            # that each is a cube, rather than a circular cap or background.
+            # Colour/size segmentation proposes patches, calibrated silhouette
+            # fitting rejects non-cubes, then Cosmos confirms semantics.
             from plan_grasps import _OBJ_REF
+            from backproject import CameraModel
+            from cube_pose import refine_pose
+            import scene_config as C
+
+            camera_path = run / "camera.json"
+            cam = CameraModel(str(camera_path)) if camera_path.is_file() else None
 
             ref = np.array(_OBJ_REF[("cube", colour)], np.float32)
-            mask = (np.linalg.norm(im.astype(np.float32) - ref, axis=2) < 95).astype(
-                np.uint8
-            )
+            # The simulated yellow plastic is about 97 BGR units from the old
+            # hand-tuned reference, so 95 silently removed a real cube. Shape
+            # fitting below is the stronger guard against caps/background.
+            colour_distance = 135 if colour == "yellow" else 110
+            mask = (
+                np.linalg.norm(im.astype(np.float32) - ref, axis=2)
+                < colour_distance
+            ).astype(np.uint8)
             hsv = cv2.cvtColor(im, cv2.COLOR_BGR2HSV)
             hue = hsv[:, :, 0]
             colour_gate = (
@@ -242,6 +247,39 @@ left to right and y top to bottom. If none are visible, use {{"objects":[]}}."""
                     or not 0.4 <= w / max(1, h) <= 2.5
                 ):
                     continue
+                proposal = dict(
+                    label=f"{colour} cube",
+                    category="cube",
+                    colour=colour,
+                    center=[centers[i][0] / W, centers[i][1] / H],
+                    bbox=[x / W, y / H, (x + w) / W, (y + h) / H],
+                    graspable=True,
+                )
+                shape_quality = None
+                if cam is not None:
+                    initial_xyz = cam.to_plane(
+                        centers[i][0],
+                        centers[i][1],
+                        z=cam.table_z + C.CUBE_EDGE / 2,
+                    )
+                    if initial_xyz is None:
+                        continue
+                    initial_xy = np.asarray(initial_xyz[:2], dtype=float)
+                    if not (
+                        C.BACKDROP_X[0] <= initial_xy[0] <= C.BACKDROP_X[1]
+                        and abs(initial_xy[1]) <= C.BACKDROP_WIDTH / 2
+                    ):
+                        continue
+                    _, _, shape_quality = refine_pose(
+                        im,
+                        cam,
+                        proposal,
+                        initial_xy,
+                        0,
+                        search_half_width=45,
+                    )
+                    if shape_quality < 0.8:
+                        continue
                 x0, x1 = max(0, x - 12), min(W, x + w + 12)
                 y0, y1 = max(0, y - 12), min(H, y + h + 12)
                 path = crops / f"{colour}_candidate{i}.png"
@@ -264,53 +302,84 @@ Use unknown and low confidence if the geometry is ambiguous."""
                 path.with_suffix(".txt").write_text(raw)
                 answer = canonicalise(parse_json(raw) or {})
                 try:
-                    accepted = (
+                    semantic_match = (
                         answer.get("category") == "cube"
                         and answer.get("colour") == colour
-                        and float(answer.get("confidence", 0)) >= 0.8
+                    )
+                    reported_confidence = answer.get("confidence")
+                    semantic_confidence = (
+                        0.9
+                        if reported_confidence is None and semantic_match
+                        else float(reported_confidence or 0)
+                    )
+                    accepted = (
+                        semantic_match and semantic_confidence >= 0.8
                     )
                 except (TypeError, ValueError):
                     accepted = False
                 if accepted:
-                    confirmed.append(
-                        dict(
-                            label=f"{colour} cube",
-                            category="cube",
-                            colour=colour,
-                            center=[centers[i][0] / W, centers[i][1] / H],
-                            bbox=[x / W, y / H, (x + w) / W, (y + h) / H],
-                            graspable=True,
-                            detail_crop=str(path.relative_to(run)),
-                            category_confidence=answer["confidence"],
-                            localisation_source="image_blob_confirmed_by_Cosmos",
-                        )
+                    proposal.update(
+                        detail_crop=str(path.relative_to(run)),
+                        category_confidence=semantic_confidence,
+                        localisation_source=(
+                            "calibrated_silhouette_and_Cosmos_semantics"
+                        ),
                     )
+                    if shape_quality is not None:
+                        proposal["proposal_silhouette_iou"] = shape_quality
+                    confirmed.append(proposal)
             replacements = confirmed
-        parsed["objects"] = [
-            o for o in parsed["objects"] if o.get("colour") != colour
-        ] + replacements
+        if local_only:
+            # Preserve already validated cubes.  The local recovery pass adds
+            # only spatially distinct candidates; pose validation below still
+            # has the final say on whether each candidate is safe.
+            existing = [
+                o for o in parsed["objects"] if o.get("colour") == colour
+            ]
+            for candidate in replacements:
+                if not any(
+                    o.get("center") is not None
+                    and candidate.get("center") is not None
+                    and np.linalg.norm(
+                        (np.array(candidate["center"]) - o["center"]) * [W, H]
+                    )
+                    < 24
+                    for o in existing
+                ):
+                    existing.append(candidate)
+            parsed["objects"] = [
+                o for o in parsed["objects"] if o.get("colour") != colour
+            ] + existing
+        else:
+            parsed["objects"] = [
+                o for o in parsed["objects"] if o.get("colour") != colour
+            ] + replacements
     return parsed
 
 
-CUBE_POSE_PROMPT = """Inspect the small cube in this camera crop and report its
-colour and tabletop pose. A calibrated image-geometry front end has measured
-its top-face orientation and centre from this SAME image, using the known cube
-size and table camera calibration. These measurements are image-derived, not
-simulator object coordinates. Use the supplied measurements for quantitative
-pose; do not guess a new angle or regress pixel corners from this blurry crop.
-Check that the object is a cube of the expected colour. If inconsistent or
-ambiguous, report unknown and low confidence. Square yaw is modulo 90 degrees;
-roll and pitch are constrained by the cube resting upright on the table.
-Return only JSON: {"category":"cube","colour":"blue","yaw_deg":14.2,
-"pose_confidence":0.9,"reason":"visible cube geometry and colour"}.
-Use the measured yaw value from this query, not the example value above."""
+CUBE_POSE_PROMPT = """Inspect the object in this tightly focused camera crop.
+Decide only whether it is a small plastic cube and whether its visible colour
+matches the expected colour. Reject round caps, cylindrical parts, shadows and
+background. A cube has a compact square top face and straight side edges; a cap
+has a much wider circular flange or rim.
+
+A calibrated image-geometry front end has already measured position and yaw
+from the original full-resolution image. Do NOT estimate, repeat, correct, or
+judge numeric pose. Your role is semantic confirmation only.
+
+Return only JSON: {"category":"cube","colour":"blue","confidence":0.9,
+"reason":"compact square top and straight side edges"}.
+Allowed category values: cube, cap, unknown. Allowed colour values: yellow,
+blue, red, unknown. Use unknown and confidence below 0.8 when ambiguous."""
 
 
-def inspect_cube_poses(model, processor, image_path, parsed, run):
-    """Cosmos reports semantics + pose with a calibrated image-geometry front end.
+def inspect_cube_poses(
+    model, processor, image_path, parsed, run, *, only_missing_pose=False
+):
+    """Cosmos confirms semantics; calibrated image geometry supplies the pose.
 
-    Raw VLM corner regression failed validation. Geometry supplies measured
-    yaw; Cosmos confirms cube/colour and explicitly reports that pose. No GT.
+    Raw VLM pose regression failed validation. Geometry supplies measured yaw
+    and position; Cosmos only confirms cube/colour. No ground truth is used.
     """
     import cv2
     import numpy as np
@@ -325,6 +394,12 @@ def inspect_cube_poses(model, processor, image_path, parsed, run):
     folder.mkdir(exist_ok=True)
     for i, obj in enumerate(parsed.get("objects", [])):
         if obj.get("category") != "cube":
+            continue
+        if (
+            only_missing_pose
+            and obj.get("pose_world") is not None
+            and float(obj.get("pose_confidence", 0)) >= 0.8
+        ):
             continue
         u, v = np.array(obj["center"]) * [W, H]
         radius = round(35 * W / 1920)
@@ -349,7 +424,7 @@ def inspect_cube_poses(model, processor, image_path, parsed, run):
             json.dumps(measurement, indent=2)
         )
         obj.update(
-            pose_source="Cosmos_reports_calibrated_image_pose",
+            pose_source="calibrated_image_pose_pending_semantic_confirmation",
             image_pose_measurement=measurement,
             pose_confidence=0,
             top_edge_endpoints=None,
@@ -367,19 +442,28 @@ def inspect_cube_poses(model, processor, image_path, parsed, run):
         answer = parse_json(raw) or {}
         obj["pose_reason"] = answer.get("reason", "")
         try:
-            reported = float(answer["yaw_deg"])
-            conf = float(answer.get("pose_confidence", 0))
-            valid = (
+            # pose_confidence is accepted as a legacy key so older cached model
+            # replies remain readable, but Cosmos no longer controls the pose.
+            semantic_match = (
                 answer.get("category") == "cube"
                 and answer.get("colour") == obj["colour"]
-                and np.isfinite(reported)
+            )
+            reported_confidence = answer.get(
+                "confidence", answer.get("pose_confidence")
+            )
+            conf = (
+                0.9
+                if reported_confidence is None and semantic_match
+                else float(reported_confidence or 0)
+            )
+            valid = (
+                semantic_match
                 and np.isfinite(conf)
                 and 0.8 <= conf <= 1
-                and abs(square_yaw(reported - yaw)) <= 3
             )
             if not valid:
                 continue
-            t = np.deg2rad(reported)
+            t = np.deg2rad(yaw)
             rot = np.array([[np.cos(t), -np.sin(t)], [np.sin(t), np.cos(t)]])
             points = [
                 cam.project(
@@ -392,11 +476,12 @@ def inspect_cube_poses(model, processor, image_path, parsed, run):
             ]
             obj.update(
                 top_edge_endpoints=(np.array(points) / [W, H]).tolist(),
-                pose_confidence=conf,
-                cosmos_reported_yaw_deg=reported,
+                pose_source="calibrated_image_pose_confirmed_by_Cosmos",
+                pose_confidence=min(conf, quality),
+                semantic_confidence=conf,
                 pose_world=dict(
                     position_m=measurement["position_world_m"],
-                    yaw_deg=square_yaw(reported),
+                    yaw_deg=square_yaw(yaw),
                     roll_deg=0,
                     pitch_deg=0,
                     yaw_symmetry_deg=90,
@@ -404,6 +489,57 @@ def inspect_cube_poses(model, processor, image_path, parsed, run):
             )
         except (KeyError, TypeError, ValueError):
             continue
+    return parsed
+
+
+def filter_stack_cube_poses(parsed, min_confidence=0.8, min_silhouette_iou=0.85):
+    """Keep only cube detections that are safe enough to enter robot planning.
+
+    Rejected detections remain in ``rejected_objects`` for debugging. This is
+    intentionally fail-closed: missing or malformed evidence is rejection, not
+    permission to move the physical robot.
+    """
+    import math
+
+    accepted = []
+    rejected = list(parsed.get("rejected_objects", []))
+    for original in parsed.get("objects", []):
+        obj = dict(original)
+        reason = None
+        try:
+            confidence = float(obj.get("pose_confidence", 0))
+            measurement = obj.get("image_pose_measurement") or {}
+            if not isinstance(measurement, dict):
+                raise TypeError("image_pose_measurement must be an object")
+            iou = float(measurement.get("silhouette_iou", 0))
+            if obj.get("category") != "cube":
+                reason = "not_a_cube"
+            elif obj.get("colour") not in ("yellow", "blue", "red"):
+                reason = "unsupported_cube_colour"
+            elif not math.isfinite(iou) or iou < min_silhouette_iou:
+                reason = "cube_silhouette_fit_uncertain"
+            elif not math.isfinite(confidence) or confidence < min_confidence:
+                reason = "cube_pose_low_confidence"
+            elif obj.get("pose_world") is None:
+                reason = "cube_pose_missing"
+        except (TypeError, ValueError):
+            reason = "cube_pose_evidence_invalid"
+        if reason is None:
+            obj["perception_eligible"] = True
+            accepted.append(obj)
+        else:
+            obj["perception_eligible"] = False
+            obj["skip_reason"] = reason
+            rejected.append(obj)
+    parsed["objects"] = accepted
+    parsed["rejected_objects"] = rejected
+    parsed["perception_safety"] = {
+        "mode": "fail_closed",
+        "minimum_pose_confidence": min_confidence,
+        "minimum_silhouette_iou": min_silhouette_iou,
+        "accepted": len(accepted),
+        "rejected": len(rejected),
+    }
     return parsed
 
 
@@ -547,24 +683,29 @@ def inspect_sort_objects(model, processor, image_path, parsed, run):
 
 
 def load_model(gpu=0):
-    _configure_cosmos_imports()
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
     import torch
-    from transformers import AutoConfig, AutoProcessor
-    from transformers_cosmos3 import Cosmos3ForConditionalGeneration
+    from transformers import AutoProcessor, Cosmos3OmniForConditionalGeneration
 
     ckpt = str(_find_nano())
     print(f"[perceive] loading Cosmos3-Nano on GPU {gpu} ...", flush=True)
-    config = AutoConfig.from_pretrained(ckpt, trust_remote_code=False)
-    model = Cosmos3ForConditionalGeneration.from_pretrained(
+    model = Cosmos3OmniForConditionalGeneration.from_pretrained(
         ckpt,
-        config=config,
-        torch_dtype=torch.bfloat16,
-        device_map="cuda",
-        attn_implementation="sdpa",
+        dtype=torch.bfloat16,
+        device_map="auto",
+        # Leave room for the vision activations on a 24 GB L4. Accelerate
+        # offloads the remaining layers to the host's 48 GB system memory.
+        max_memory={0: "18GiB", "cpu": "36GiB"},
     )
     model.eval()
-    processor = AutoProcessor.from_pretrained(ckpt, trust_remote_code=True)
+    processor = AutoProcessor.from_pretrained(
+        ckpt,
+        trust_remote_code=True,
+        # The Isaac world camera is 4K. About one megapixel is enough for the
+        # tabletop objects and avoids spending VRAM on unnecessary patches.
+        min_pixels=256 * 28 * 28,
+        max_pixels=1280 * 28 * 28,
+    )
     print("[perceive] model ready", flush=True)
     return model, processor
 
@@ -793,9 +934,13 @@ if __name__ == "__main__":
     else:
         prompt, stem, budget = PROMPT, "detections", 3000
     model, processor = load_model(a.gpu)
-    # detection replies are pretty-printed JSON and run long; 8 objects with
-    # bboxes overflowed a 1400-token budget mid-object and failed to parse
-    raw = ask(model, processor, img, prompt, max_new_tokens=budget)
+    # Tiny 10 mm cubes are unreliable when a VLM must both find and classify
+    # them in one wide-image response. Stack mode instead uses deterministic
+    # image proposals and asks Cosmos only to classify focused crops.
+    if a.stack_cubes:
+        raw = json.dumps({"objects": []})
+    else:
+        raw = ask(model, processor, img, prompt, max_new_tokens=budget)
 
     (run / f"{stem}_raw.txt").write_text(raw)
     parsed = parse_json(raw)
@@ -818,8 +963,28 @@ if __name__ == "__main__":
         sys.exit(1)
     parsed = canonicalise(parsed)
     if a.stack_cubes:
-        parsed = audit_stack_colours(model, processor, img, parsed, run)
+        from collections import Counter
+
+        parsed = audit_stack_colours(
+            model, processor, img, parsed, run, local_only=True
+        )
         parsed = inspect_cube_poses(model, processor, img, parsed, run)
+        parsed = filter_stack_cube_poses(parsed)
+        counts = Counter(o.get("colour") for o in parsed["objects"])
+        missing = [c for c in ("yellow", "blue", "red") if counts[c] < 2]
+        if missing:
+            print(
+                "[perceive] unsafe or missing cube detections for "
+                + ", ".join(missing)
+                + "; robot planning remains disabled"
+            )
+        final_counts = Counter(o.get("colour") for o in parsed["objects"])
+        parsed["perception_safety"].update(
+            recovery_attempted_for=missing,
+            inventory_complete=all(
+                final_counts[colour] == 2 for colour in ("yellow", "blue", "red")
+            ),
+        )
         parsed["model"] = "Cosmos3-Nano"
         parsed["task"] = "cube_stack"
     if a.sort and not (a.verify or a.inventory):

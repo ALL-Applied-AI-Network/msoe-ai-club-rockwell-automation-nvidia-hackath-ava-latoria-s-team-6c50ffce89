@@ -6,7 +6,9 @@ Work by **component**, not by person. Multiple teammates may touch the same modu
 
 | Component | Location |
 | --- | --- |
-| Wrist grasp verification | `src/stacking_recovery/vision/grasp_check.py` |
+| Wrist grasp verification (rules) | `src/stacking_recovery/vision/grasp_check.py` |
+| Wrist grasp verification (AI) | `src/stacking_recovery/vision/grasp_quality_model.py`, `grasp_check_factory.py` |
+| Procedural / Isaac datasets | `src/stacking_recovery/data/`, `scripts/generate_procedural_wrist_dataset.py`, `scripts/sim/collect_wrist_dataset.py` |
 | Placement verification | `src/stacking_recovery/vision/place_check.py` |
 | Recovery state machine | `src/stacking_recovery/control/recovery_policy.py` |
 | Isaac / `sort_scene` wiring | `src/stacking_recovery/integration/sim_hooks.py` |
@@ -25,6 +27,23 @@ python -m venv .venv
 pip install -e ".[dev]"
 python -m unittest discover -s tests -p "test_*.py"
 ```
+
+## Closed-loop sim run
+
+From the FANUC starter directory (with Isaac/Cosmos configured):
+
+```bash
+CLOSED_LOOP=1 VERIFICATION=ai TRIAL_CONFIG=/path/to/configs/trials/nominal_closed_loop_seed0.json \
+  ./run_sort_pipeline.sh /path/to/results/runs/my_trial
+```
+
+For the safest learned-model demo, use `VERIFICATION=ai_guarded`. It requires
+both the MobileNet classifier and deterministic wrist geometry check to accept
+the grasp. Keep `rules` and `ai` as separate ablation modes when benchmarking.
+
+Train the classifier locally before Brev: `pip install -e ".[ml]"` then see [models/README.md](../models/README.md).
+
+Generate the full trial matrix: `python scripts/generate_trials.py`
 
 ## Rules
 

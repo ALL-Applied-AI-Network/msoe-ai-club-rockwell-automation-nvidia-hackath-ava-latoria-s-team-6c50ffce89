@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+.venv-codex/
+.codex-python/
+.codex-test-tmp/
 *.egg-info/
 dist/
 build/
@@ -10,11 +13,14 @@ build/
 # Results & sim outputs
 results/runs/**/*
 !results/runs/.gitkeep
+results/release/
 
 # Data (keep fixtures dir, ignore captures)
 data/fixtures/**/*.png
 data/fixtures/**/*.jpg
 !data/fixtures/**/.gitkeep
+data/grasp_quality/images/
+data/grasp_quality/manifest.json
 
 # Hardware CAD binaries
 hardware/cad/*
@@ -27,6 +33,8 @@ hardware/cad/*
 *.pt
 *.onnx
 *.safetensors
+models/*.meta.json
+!models/grasp_pickup_table_resnet18_siamese_224.pt
 
 # Stretch training artifacts
 stretch/yolo/runs/

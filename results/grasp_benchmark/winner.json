@@ -1,0 +1,350 @@
+{
+  "name": "resnet18_siamese",
+  "architecture": "resnet18",
+  "pair_mode": "siamese",
+  "input_size": 224,
+  "seed": 7,
+  "classes": [
+    "GOOD",
+    "SHIFTED"
+  ],
+  "splits": {
+    "train": 2160,
+    "val": 180,
+    "test": 180
+  },
+  "validation": {
+    "accuracy": 1.0,
+    "macro_f1": 1.0,
+    "unsafe_good_rate": 0.0,
+    "confusion": [
+      [
+        90,
+        0
+      ],
+      [
+        0,
+        90
+      ]
+    ],
+    "per_class": {
+      "GOOD": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "SHIFTED": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      }
+    },
+    "threshold_good": 0.525,
+    "n": 180
+  },
+  "test": {
+    "accuracy": 0.9944444444444445,
+    "macro_f1": 0.994444272971388,
+    "unsafe_good_rate": 0.011111111111111112,
+    "confusion": [
+      [
+        90,
+        0
+      ],
+      [
+        1,
+        89
+      ]
+    ],
+    "per_class": {
+      "GOOD": {
+        "precision": 0.989010989010989,
+        "recall": 1.0,
+        "f1": 0.994475138121547
+      },
+      "SHIFTED": {
+        "precision": 1.0,
+        "recall": 0.9888888888888889,
+        "f1": 0.9944134078212291
+      }
+    },
+    "threshold_good": 0.525,
+    "n": 180
+  },
+  "test_latency_ms": 0.5519864333336955,
+  "checkpoint": "/workspace/resnet-seed7-224-v2/resnet18_siamese.pt",
+  "history": [
+    {
+      "epoch": 1,
+      "loss": 0.41211528396781755,
+      "val": {
+        "accuracy": 0.9833333333333333,
+        "macro_f1": 0.983332818914164,
+        "unsafe_good_rate": 0.011111111111111112,
+        "confusion": [
+          [
+            88,
+            2
+          ],
+          [
+            1,
+            89
+          ]
+        ],
+        "per_class": {
+          "GOOD": {
+            "precision": 0.9887640449438202,
+            "recall": 0.9777777777777777,
+            "f1": 0.9832402234636872
+          },
+          "SHIFTED": {
+            "precision": 0.978021978021978,
+            "recall": 0.9888888888888889,
+            "f1": 0.9834254143646408
+          }
+        },
+        "threshold_good": 0.925,
+        "n": 180
+      },
+      "latency_ms": 0.6145784500000041
+    },
+    {
+      "epoch": 2,
+      "loss": 0.16367839441141663,
+      "val": {
+        "accuracy": 0.9944444444444445,
+        "macro_f1": 0.994444272971388,
+        "unsafe_good_rate": 0.0,
+        "confusion": [
+          [
+            89,
+            1
+          ],
+          [
+            0,
+            90
+          ]
+        ],
+        "per_class": {
+          "GOOD": {
+            "precision": 1.0,
+            "recall": 0.9888888888888889,
+            "f1": 0.9944134078212291
+          },
+          "SHIFTED": {
+            "precision": 0.989010989010989,
+            "recall": 1.0,
+            "f1": 0.994475138121547
+          }
+        },
+        "threshold_good": 0.961,
+        "n": 180
+      },
+      "latency_ms": 0.5471547000006972
+    },
+    {
+      "epoch": 3,
+      "loss": 0.10757114080821767,
+      "val": {
+        "accuracy": 1.0,
+        "macro_f1": 1.0,
+        "unsafe_good_rate": 0.0,
+        "confusion": [
+          [
+            90,
+            0
+          ],
+          [
+            0,
+            90
+          ]
+        ],
+        "per_class": {
+          "GOOD": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "SHIFTED": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "threshold_good": 0.525,
+        "n": 180
+      },
+      "latency_ms": 0.5517254500003017
+    },
+    {
+      "epoch": 4,
+      "loss": 0.08365958194960565,
+      "val": {
+        "accuracy": 1.0,
+        "macro_f1": 1.0,
+        "unsafe_good_rate": 0.0,
+        "confusion": [
+          [
+            90,
+            0
+          ],
+          [
+            0,
+            90
+          ]
+        ],
+        "per_class": {
+          "GOOD": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "SHIFTED": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "threshold_good": 0.199,
+        "n": 180
+      },
+      "latency_ms": 0.5515720666658631
+    },
+    {
+      "epoch": 5,
+      "loss": 0.08161821271128514,
+      "val": {
+        "accuracy": 1.0,
+        "macro_f1": 1.0,
+        "unsafe_good_rate": 0.0,
+        "confusion": [
+          [
+            90,
+            0
+          ],
+          [
+            0,
+            90
+          ]
+        ],
+        "per_class": {
+          "GOOD": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "SHIFTED": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "threshold_good": 0.25,
+        "n": 180
+      },
+      "latency_ms": 0.5531253555545845
+    },
+    {
+      "epoch": 6,
+      "loss": 0.08106395700836883,
+      "val": {
+        "accuracy": 1.0,
+        "macro_f1": 1.0,
+        "unsafe_good_rate": 0.0,
+        "confusion": [
+          [
+            90,
+            0
+          ],
+          [
+            0,
+            90
+          ]
+        ],
+        "per_class": {
+          "GOOD": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "SHIFTED": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "threshold_good": 0.169,
+        "n": 180
+      },
+      "latency_ms": 0.5530555444440526
+    },
+    {
+      "epoch": 7,
+      "loss": 0.08063399594496279,
+      "val": {
+        "accuracy": 1.0,
+        "macro_f1": 1.0,
+        "unsafe_good_rate": 0.0,
+        "confusion": [
+          [
+            90,
+            0
+          ],
+          [
+            0,
+            90
+          ]
+        ],
+        "per_class": {
+          "GOOD": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "SHIFTED": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "threshold_good": 0.129,
+        "n": 180
+      },
+      "latency_ms": 0.5530296833310584
+    },
+    {
+      "epoch": 8,
+      "loss": 0.0804161916979972,
+      "val": {
+        "accuracy": 1.0,
+        "macro_f1": 1.0,
+        "unsafe_good_rate": 0.0,
+        "confusion": [
+          [
+            90,
+            0
+          ],
+          [
+            0,
+            90
+          ]
+        ],
+        "per_class": {
+          "GOOD": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "SHIFTED": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "threshold_good": 0.062,
+        "n": 180
+      },
+      "latency_ms": 0.5531871388901285
+    }
+  ]
+}
