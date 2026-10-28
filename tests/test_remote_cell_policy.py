@@ -1,7 +1,9 @@
 import importlib.util
+import json
 import os
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -14,6 +16,91 @@ SPEC.loader.exec_module(POLICY)
 
 
 class TestRemoteCellPolicy(unittest.TestCase):
+    def test_known_instruction_uses_deterministic_plan_without_network(self):
+        with mock.patch.object(
+            POLICY.urlrequest,
+            "urlopen",
+            side_effect=AssertionError("network should not be used"),
+        ):
+            plan = POLICY.resolve_task_plan(
+                "Place the red 10 mm cube on top of the blue 10 mm cube."
+            )
+
+        self.assertEqual(plan["planner"], "deterministic")
+        self.assertEqual(plan["action"], "stack")
+        self.assertEqual(plan["source_color"], "red")
+        self.assertEqual(plan["destination_color"], "blue")
+
+    def test_gemini_structured_plan_is_validated_without_exposing_key(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                task = {
+                    "action": "stack",
+                    "source_color": "blue",
+                    "destination_color": "red",
+                    "shape": "cube",
+                    "size_mm": 10,
+                    "requires_clarification": False,
+                }
+                body = {
+                    "candidates": [
+                        {"content": {"parts": [{"text": json.dumps(task)}]}}
+                    ]
+                }
+                return json.dumps(body).encode("utf-8")
+
+        old_key = os.environ.get("GEMINI_API_KEY")
+        try:
+            os.environ["GEMINI_API_KEY"] = "test-key-never-log"
+            with mock.patch.object(
+                POLICY.urlrequest,
+                "urlopen",
+                return_value=FakeResponse(),
+            ) as call:
+                plan = POLICY.resolve_task_plan(
+                    "Stack the blue ten millimeter cube above the red cube."
+                )
+
+            self.assertEqual(plan["planner"], "gemini")
+            self.assertEqual(plan["source_color"], "blue")
+            request = call.call_args.args[0]
+            self.assertNotIn("test-key-never-log", request.full_url)
+        finally:
+            if old_key is None:
+                os.environ.pop("GEMINI_API_KEY", None)
+            else:
+                os.environ["GEMINI_API_KEY"] = old_key
+
+    def test_ambiguous_or_unsupported_instruction_fails_closed(self):
+        old_key = os.environ.pop("GEMINI_API_KEY", None)
+        try:
+            policy = POLICY.Policy()
+            policy._calibration_error = None
+            obs = {
+                "trial": {"instruction": "Move something somewhere."},
+                "images": {
+                    "table": np.zeros((360, 640, 3), dtype=np.uint8),
+                    "wrist": np.zeros((360, 640, 3), dtype=np.uint8),
+                },
+                "tcp_pose": [300, 0, -250, -180, 0, 0],
+                "joints": [0, 0, 0, 0, 0, 0, 0],
+            }
+
+            action = np.asarray(policy.act(obs), dtype=float).reshape(-1, 7)
+
+            self.assertEqual(policy.phase, "stopped")
+            self.assertIn("instruction rejected", policy.reason)
+            self.assertTrue(all(POLICY.tcp_is_safe(row) for row in action))
+        finally:
+            if old_key is not None:
+                os.environ["GEMINI_API_KEY"] = old_key
+
     def test_color_centers_find_small_red_and_blue_regions(self):
         image = np.zeros((120, 200, 3), dtype=np.uint8)
         image[20:32, 30:44] = (230, 20, 20)

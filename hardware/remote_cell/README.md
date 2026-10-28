@@ -47,3 +47,27 @@ is used upright (robot base at the top, robot `+x` down the image, and robot
 `+y` to the right); this policy does not rotate, mirror, or swap RGB/BGR
 channels.
 
+## Optional Gemini language planner
+
+The policy reads the organizer's `obs["trial"]["instruction"]` before any
+motion. The known benchmark instruction is parsed locally, so the physical run
+does not depend on network access or an LLM. Other wording can optionally be
+converted to a strict task schema by Gemini:
+
+```bash
+export GEMINI_API_KEY="your-key-from-Google-AI-Studio"
+export GEMINI_MODEL="gemini-2.5-flash-lite"   # optional override
+export GEMINI_TIMEOUT_SECONDS="5"             # clamped to 1-15 seconds
+```
+
+Never paste the key into `policy.py`, a YAML file, telemetry, or Git. The key is
+sent only in the `x-goog-api-key` request header and is not written to logs.
+
+Gemini may select only a structured, allowlisted task. It cannot produce TCP
+coordinates, joint angles, motion commands, or executable code. The current
+physical policy has one tested execution skill: stack the red 10 mm cube on the
+blue 10 mm cube. Any ambiguous instruction, unsupported object/action, missing
+key for novel wording, invalid response, timeout, or network error stops before
+motion. Future language-directed skills should be added as separately tested
+state-machine handlers rather than giving the LLM direct robot control.
+

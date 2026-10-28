@@ -12,10 +12,14 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
+from urllib import error as urlerror
+from urllib import request as urlrequest
+from urllib.parse import quote
 
 import cv2
 import numpy as np
@@ -34,6 +38,168 @@ FIXED_TARGET_ENV = {
     "red": "REMOTE_ARM_RED_XY_MM",
     "blue": "REMOTE_ARM_BLUE_XY_MM",
 }
+DEFAULT_INSTRUCTION = "Place the red 10 mm cube on top of the blue 10 mm cube."
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
+TASK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "action": {"type": "string", "enum": ["stack"]},
+        "source_color": {"type": "string", "enum": ["red", "blue"]},
+        "destination_color": {"type": "string", "enum": ["red", "blue"]},
+        "shape": {"type": "string", "enum": ["cube"]},
+        "size_mm": {"type": "integer", "enum": [10]},
+        "requires_clarification": {"type": "boolean"},
+    },
+    "required": [
+        "action",
+        "source_color",
+        "destination_color",
+        "shape",
+        "size_mm",
+        "requires_clarification",
+    ],
+}
+
+
+class InstructionError(ValueError):
+    """Raised when a language instruction cannot be converted safely."""
+
+
+def _validated_task_plan(raw: dict, *, instruction: str, planner: str) -> dict:
+    """Validate model output again before it can select a robot skill."""
+
+    if not isinstance(raw, dict):
+        raise InstructionError("instruction planner did not return an object")
+    required = {
+        "action",
+        "source_color",
+        "destination_color",
+        "shape",
+        "size_mm",
+        "requires_clarification",
+    }
+    if set(raw) != required:
+        raise InstructionError("instruction plan has unexpected or missing fields")
+    if raw["action"] != "stack" or raw["shape"] != "cube":
+        raise InstructionError("only cube stacking is currently allowlisted")
+    if raw["source_color"] not in FIXED_TARGET_ENV or raw["destination_color"] not in FIXED_TARGET_ENV:
+        raise InstructionError("instruction uses an unsupported cube color")
+    if raw["source_color"] == raw["destination_color"]:
+        raise InstructionError("source and destination cubes must be different")
+    if type(raw["size_mm"]) is not int or raw["size_mm"] != 10:
+        raise InstructionError("only 10 mm cubes are currently allowlisted")
+    if type(raw["requires_clarification"]) is not bool:
+        raise InstructionError("requires_clarification must be boolean")
+    if raw["requires_clarification"]:
+        raise InstructionError("instruction is ambiguous and requires clarification")
+    return {
+        **raw,
+        "instruction": instruction,
+        "planner": planner,
+    }
+
+
+def _local_task_plan(instruction: str) -> dict | None:
+    """Handle the known benchmark wording without network access or latency."""
+
+    normalized = re.sub(r"[^a-z0-9]+", " ", instruction.lower()).strip()
+    verbs_ok = "place" in normalized or "stack" in normalized
+    relation_ok = "on top of" in normalized or "onto" in normalized or "on the blue" in normalized
+    red_index = normalized.find("red")
+    blue_index = normalized.find("blue")
+    if (
+        verbs_ok
+        and relation_ok
+        and "cube" in normalized
+        and ("10 mm" in normalized or "10mm" in normalized)
+        and 0 <= red_index < blue_index
+    ):
+        return _validated_task_plan(
+            {
+                "action": "stack",
+                "source_color": "red",
+                "destination_color": "blue",
+                "shape": "cube",
+                "size_mm": 10,
+                "requires_clarification": False,
+            },
+            instruction=instruction,
+            planner="deterministic",
+        )
+    return None
+
+
+def _gemini_task_plan(instruction: str) -> dict:
+    """Use Gemini structured output as a planner, never as a motion controller."""
+
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise InstructionError("unsupported wording and GEMINI_API_KEY is not configured")
+    model = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
+    if not model or not re.fullmatch(r"[A-Za-z0-9._-]+", model):
+        raise InstructionError("GEMINI_MODEL contains invalid characters")
+    try:
+        timeout = float(os.environ.get("GEMINI_TIMEOUT_SECONDS", "5"))
+    except ValueError as exc:
+        raise InstructionError("GEMINI_TIMEOUT_SECONDS must be numeric") from exc
+    timeout = min(15.0, max(1.0, timeout))
+    prompt = (
+        "Convert the robot instruction below into the provided task schema. "
+        "Do not invent objects, colors, sizes, coordinates, or actions. Mark "
+        "requires_clarification true if any required detail is absent or ambiguous. "
+        "The output selects a pre-validated skill only; it must never contain "
+        "joint angles, poses, code, or motion commands.\n\nInstruction: "
+        + instruction
+    )
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0,
+            "responseFormat": {
+                "text": {
+                    "mimeType": "APPLICATION_JSON",
+                    "schema": TASK_SCHEMA,
+                }
+            },
+        },
+    }
+    endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        + quote(model, safe="")
+        + ":generateContent"
+    )
+    api_request = urlrequest.Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        },
+        method="POST",
+    )
+    try:
+        with urlrequest.urlopen(api_request, timeout=timeout) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urlerror.HTTPError as exc:
+        raise InstructionError(f"Gemini request failed with HTTP {exc.code}") from exc
+    except (urlerror.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        raise InstructionError(f"Gemini request failed: {type(exc).__name__}") from exc
+    try:
+        text = body["candidates"][0]["content"]["parts"][0]["text"]
+        raw = json.loads(text)
+    except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+        raise InstructionError("Gemini response did not contain a valid task plan") from exc
+    return _validated_task_plan(raw, instruction=instruction, planner="gemini")
+
+
+def resolve_task_plan(instruction: str | None) -> dict:
+    """Resolve one instruction, preferring the deterministic safe fast path."""
+
+    text = (instruction or DEFAULT_INSTRUCTION).strip()
+    if not text:
+        raise InstructionError("task instruction is empty")
+    local = _local_task_plan(text)
+    return local if local is not None else _gemini_task_plan(text)
 
 
 def component_centers(
@@ -168,7 +334,7 @@ def interpolate_tcp(start: Iterable[float] | None, target: Iterable[float], *, s
 
 
 class Policy:
-    """Pick the red 10 mm cube and place it on the blue 10 mm cube."""
+    """Execute an allowlisted language task through the deterministic state machine."""
 
     CAMERAS = ["table", "wrist"]
     IMAGE_SIZE = (640, 360)
@@ -238,6 +404,7 @@ class Policy:
         self._red_seen_at_pick_target = False
         self._pick_verification_source: str | None = None
         self._last_commanded_target: list[float] | None = None
+        self.task_plan: dict | None = None
         self.phase = "locate"
         self.red_xy_mm: tuple[float, float] | None = None
         self.blue_xy_mm: tuple[float, float] | None = None
@@ -459,6 +626,7 @@ class Policy:
                     "detections": self._last_detections,
                     "wrist_red_visible": self._last_wrist_red_visible,
                     "pick_verification_source": self._pick_verification_source,
+                    "task_plan": self.task_plan,
                     "rl_enabled": False,
                     "operator_fallback_active": self._operator_fallback_active,
                 },
@@ -532,6 +700,33 @@ class Policy:
             return self._fail(obs, "table camera unavailable")
 
         if self.phase == "locate":
+            if self.task_plan is None:
+                trial = obs.get("trial", {}) or {}
+                instruction = (
+                    trial.get("instruction")
+                    if isinstance(trial, dict)
+                    else None
+                ) or os.environ.get("REMOTE_ARM_INSTRUCTION")
+                try:
+                    self.task_plan = resolve_task_plan(instruction)
+                except InstructionError as instruction_error:
+                    return self._fail(obs, f"instruction rejected: {instruction_error}")
+                # The planner may only select skills that this physical policy
+                # has explicitly implemented and tested. The structured
+                # parser is intentionally more general than today's single
+                # execution skill so future skills can be added safely.
+                supported = (
+                    self.task_plan["action"] == "stack"
+                    and self.task_plan["source_color"] == "red"
+                    and self.task_plan["destination_color"] == "blue"
+                    and self.task_plan["shape"] == "cube"
+                    and self.task_plan["size_mm"] == 10
+                )
+                if not supported:
+                    return self._fail(
+                        obs,
+                        "instruction resolved to a task without an allowlisted physical skill",
+                    )
             red = self._table_xy(table, "red")
             blue = self._table_xy(table, "blue")
             if red is None or blue is None:
