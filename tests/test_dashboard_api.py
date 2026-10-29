@@ -174,6 +174,7 @@ class TestDashboardAPI(unittest.TestCase):
                                 "grab": 1,
                                 "predicted_class": "GOOD",
                                 "confidence": 0.97,
+                                "probabilities": {"GOOD": 0.97, "SHIFTED": 0.03},
                                 "pickup_verified": True,
                                 "placement_verified": True,
                                 "placement_error_mm": 0.2,
@@ -214,8 +215,12 @@ class TestDashboardAPI(unittest.TestCase):
         self.assertEqual(payload["timeline"][1]["tip_error_mm"], 0.125)
         self.assertIsNone(payload["timeline"][0]["overall_success_rate"])
         self.assertIsNone(payload["timeline"][4]["prediction"])
+        self.assertEqual(payload["timeline"][4]["model_status"], "waiting_for_lift")
         self.assertEqual(payload["timeline"][5]["state_machine_step"], "carry")
         self.assertEqual(payload["timeline"][5]["prediction"], "GOOD")
+        self.assertEqual(payload["timeline"][5]["good_probability"], 0.97)
+        self.assertEqual(payload["timeline"][5]["shifted_probability"], 0.03)
+        self.assertEqual(payload["timeline"][5]["model_status"], "scored")
         self.assertEqual(payload["timeline"][-1]["placement_error_mm"], 0.2)
         self.assertEqual(payload["timeline"][-1]["overall_success_rate"], 1.0)
         self.assertEqual(payload["timeline"][-1]["end_s"], 9.2)

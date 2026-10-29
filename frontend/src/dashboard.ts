@@ -18,6 +18,12 @@ export interface DisplayValues {
   tip_error_mm: number | null
   wrist_joint_deg: number | null
   motion_evidence: string | null
+  model_status: string | null
+  model_reason: string | null
+  model_input: string | null
+  good_probability: number | null
+  shifted_probability: number | null
+  model_gate: string | null
 }
 
 export interface TimelineEvent extends DisplayValues {

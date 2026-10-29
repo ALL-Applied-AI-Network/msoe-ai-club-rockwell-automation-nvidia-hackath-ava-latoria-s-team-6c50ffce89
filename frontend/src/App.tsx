@@ -4,7 +4,6 @@ import {
   apiUrl,
   displayForVideoTime,
   fetchDashboard,
-  timelineEventForVideoTime,
   type ConnectionState,
   type DashboardSnapshot,
   type DisplayValues,
@@ -28,6 +27,12 @@ const EMPTY_DISPLAY: DisplayValues = {
   tip_error_mm: null,
   wrist_joint_deg: null,
   motion_evidence: null,
+  model_status: null,
+  model_reason: null,
+  model_input: null,
+  good_probability: null,
+  shifted_probability: null,
+  model_gate: null,
 }
 
 function show(value: string | number | null, fallback = 'Not available'): string {
@@ -78,24 +83,15 @@ function App() {
     }
   }, [])
 
-  const playback = useMemo(() => {
-    if (!snapshot) return { display: EMPTY_DISPLAY, movementProgress: null }
+  const display = useMemo(() => {
+    if (!snapshot) return EMPTY_DISPLAY
     const timelineEnd = snapshot.timeline.at(-1)?.end_s ?? 0
     const timelineTime =
       videoDuration > 0 && timelineEnd > 0
         ? videoTime * (timelineEnd / videoDuration)
         : videoTime
-    const active = timelineEventForVideoTime(snapshot, timelineTime)
-    const movementProgress =
-      active && active.end_s > active.start_s
-        ? Math.min(1, Math.max(0, (timelineTime - active.start_s) / (active.end_s - active.start_s)))
-        : null
-    return {
-      display: displayForVideoTime(snapshot, timelineTime),
-      movementProgress,
-    }
+    return displayForVideoTime(snapshot, timelineTime)
   }, [snapshot, videoDuration, videoTime])
-  const display = playback.display
   const plan = snapshot?.planning
   const videoUrl = apiUrl(snapshot?.media.video_url ?? null)
 
@@ -145,42 +141,53 @@ function App() {
 
           <dl className="decision-list">
             <div>
+              <dt>Model evaluation</dt>
+              <dd>{show(display.model_status, 'Waiting for classifier')}</dd>
+            </div>
+
+            <div>
+              <dt>Model input</dt>
+              <dd>{show(display.model_input, 'Waiting for image pair')}</dd>
+            </div>
+
+            <div>
+              <dt>Predicted grasp quality</dt>
+              <dd>{show(display.prediction, 'Not scored yet')}</dd>
+            </div>
+
+            <div>
+              <dt>Prediction confidence</dt>
+              <dd>{percent(display.confidence)}</dd>
+            </div>
+
+            <div>
+              <dt>GOOD probability</dt>
+              <dd>{percent(display.good_probability)}</dd>
+            </div>
+
+            <div>
+              <dt>SHIFTED probability</dt>
+              <dd>{percent(display.shifted_probability)}</dd>
+            </div>
+
+            <div>
+              <dt>Why this value is shown</dt>
+              <dd>{show(display.model_reason, 'Waiting for the recorded evaluation point')}</dd>
+            </div>
+
+            <div>
+              <dt>Recorded model gate</dt>
+              <dd>{show(display.model_gate, 'No model decision yet')}</dd>
+            </div>
+
+            <div>
               <dt>Current phase</dt>
               <dd>{show(display.phase)}</dd>
             </div>
 
             <div>
-              <dt>Grasp quality prediction</dt>
-              <dd>{show(display.prediction, 'Not scored yet')}</dd>
-            </div>
-
-            <div>
-              <dt>Confidence</dt>
-              <dd>{percent(display.confidence)}</dd>
-            </div>
-
-            <div>
               <dt>State-machine step</dt>
               <dd>{show(display.state_machine_step)}</dd>
-            </div>
-
-            <div>
-              <dt>Movement</dt>
-              <dd>
-                {display.motion_segment_index === null || display.motion_segment_total === null
-                  ? show(display.motion_segment, 'Waiting')
-                  : `${show(display.motion_segment)} (${display.motion_segment_index}/${display.motion_segment_total})`}
-              </dd>
-            </div>
-
-            <div>
-              <dt>Movement progress</dt>
-              <dd>{playback.movementProgress === null ? 'Not available' : percent(playback.movementProgress)}</dd>
-            </div>
-
-            <div>
-              <dt>Gripper command</dt>
-              <dd>{show(display.gripper_command, 'Waiting')}</dd>
             </div>
 
             <div>
@@ -199,37 +206,37 @@ function App() {
             </div>
 
             <div>
-              <dt>Cycle time</dt>
-              <dd>{display.cycle_time_s === null ? 'Not available' : `${display.cycle_time_s.toFixed(1)} s`}</dd>
-            </div>
-
-            <div>
               <dt>Placement error</dt>
               <dd>{display.placement_error_mm === null ? 'Not available' : `${display.placement_error_mm.toFixed(1)} mm`}</dd>
-            </div>
-
-            <div>
-              <dt>Recorded TCP tracking error</dt>
-              <dd>{display.tip_error_mm === null ? 'Not sampled for this movement' : `${display.tip_error_mm.toFixed(3)} mm`}</dd>
-            </div>
-
-            <div>
-              <dt>Recorded wrist joint</dt>
-              <dd>{display.wrist_joint_deg === null ? 'Not sampled for this movement' : `${display.wrist_joint_deg.toFixed(2)}°`}</dd>
-            </div>
-
-            <div>
-              <dt>Movement data source</dt>
-              <dd>{show(display.motion_evidence, 'Live telemetry')}</dd>
-            </div>
-
-            <div>
-              <dt>Overall success rate</dt>
-              <dd>{percent(display.overall_success_rate)}</dd>
             </div>
           </dl>
         </section>
       </div>
+
+      <section className="demo-card planning-card">
+        <div className="panel-heading">
+          <h2>Recorded run summary</h2>
+          <span className="plan-badge ready">verified</span>
+        </div>
+        <dl className="planning-grid">
+          <div>
+            <dt>Successful pickups</dt>
+            <dd>{show(typeof snapshot?.metrics.successful_pickups === 'number' ? snapshot.metrics.successful_pickups : null)} / {show(snapshot?.progress.total_grabs ?? null)}</dd>
+          </div>
+          <div>
+            <dt>Verified placements</dt>
+            <dd>{show(typeof snapshot?.metrics.verified_placements === 'number' ? snapshot.metrics.verified_placements : null)} / {show(snapshot?.progress.total_grabs ?? null)}</dd>
+          </div>
+          <div>
+            <dt>Classifier accuracy on scored grasps</dt>
+            <dd>{percent(typeof snapshot?.metrics.classifier_accuracy === 'number' ? snapshot.metrics.classifier_accuracy : null)}</dd>
+          </div>
+          <div>
+            <dt>Classifier coverage</dt>
+            <dd>{percent(typeof snapshot?.metrics.classifier_coverage === 'number' ? snapshot.metrics.classifier_coverage : null)}</dd>
+          </div>
+        </dl>
+      </section>
 
       <section className="demo-card planning-card">
         <div className="panel-heading">

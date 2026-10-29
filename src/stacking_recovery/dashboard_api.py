@@ -287,6 +287,12 @@ def _display_values(
         "tip_error_mm": current.get("tip_error_mm"),
         "wrist_joint_deg": current.get("wrist_joint_deg"),
         "motion_evidence": current.get("motion_evidence"),
+        "model_status": current.get("model_status"),
+        "model_reason": current.get("model_reason"),
+        "model_input": current.get("model_input"),
+        "good_probability": current.get("good_probability"),
+        "shifted_probability": current.get("shifted_probability"),
+        "model_gate": current.get("model_gate"),
     }
 
 
@@ -334,6 +340,21 @@ def _archived_motion_timeline(
             if isinstance(detail.get("phase_measurements"), dict)
             else {}
         )
+        visual = (
+            detail.get("rl_visual_verification")
+            if isinstance(detail.get("rl_visual_verification"), dict)
+            else {}
+        )
+        quality = (
+            visual.get("quality")
+            if isinstance(visual.get("quality"), dict)
+            else {}
+        )
+        probabilities = (
+            summary.get("probabilities")
+            if isinstance(summary.get("probabilities"), dict)
+            else {}
+        )
         protected = "prelower" in measurements or "final_lower" in measurements
         segments = _PROTECTED_STACK_SEGMENTS if protected else _TRANSFER_SEGMENTS
         lift_index = next(
@@ -354,9 +375,21 @@ def _archived_motion_timeline(
                 measurement = {}
             pickup_known = index > lift_index
             placement_known = name == "home"
+            prediction = summary.get("predicted_class") if pickup_known else None
+            if not pickup_known:
+                model_status = "waiting_for_lift"
+                model_reason = "The before/after classifier runs after the lift completes"
+            elif prediction is not None:
+                model_status = "scored"
+                model_reason = "The recorded image pair passed the model input quality checks"
+            else:
+                model_status = "not_scored"
+                model_reason = str(
+                    quality.get("reason") or "No trained-model prediction was recorded"
+                ).replace("_", " ")
             event_values = {
                 **summary,
-                "predicted_class": summary.get("predicted_class") if pickup_known else None,
+                "predicted_class": prediction,
                 "confidence": summary.get("confidence") if pickup_known else None,
                 "pickup_verified": summary.get("pickup_verified") if pickup_known else None,
                 "placement_verified": (
@@ -384,6 +417,14 @@ def _archived_motion_timeline(
                     if measurement
                     else "recorded controller segment"
                 ),
+                "model_status": model_status,
+                "model_reason": model_reason,
+                "model_input": "before/after table-camera image pair",
+                "good_probability": probabilities.get("GOOD") if pickup_known else None,
+                "shifted_probability": (
+                    probabilities.get("SHIFTED") if pickup_known else None
+                ),
+                "model_gate": summary.get("visual_gate") if pickup_known else None,
             }
             completed_at_segment = completed_grabs + (1 if placement_known else 0)
             verified_at_segment = verified_placements + (
