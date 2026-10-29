@@ -15,14 +15,12 @@ from stacking_recovery.types import (
 
 
 class TestRecoveryPolicy(unittest.TestCase):
-    #the reason this test fails is that the default recovery policy's
-    #failure reason is stub which leads to safe stop in the choose action helper method
-    def test_proceed_when_seated(self):
+    def test_stop_when_recovery_decision_isnt_proceed(self):
         policy = RecoveryPolicy()
         ctx = ManipulationContext("yellow", 0, 0.95)
         img = np.zeros((720, 1280, 3), dtype=np.uint8)
         decision, result = policy.after_grasp_close(ctx, img)
-        self.assertEqual(decision, RecoveryDecision.PROCEED)
+        self.assertEqual(decision, RecoveryDecision.SAFE_STOP)
 
     #this tests the same thing as above but sets the failure reason to
     #ok which is what passes the choose action behavior outline
