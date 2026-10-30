@@ -892,3 +892,126 @@ section[id] {
     transform: none;
   }
 }
+/* Black + lime green theme */
+
+:root {
+  --page: #080a07;
+  --surface: #11150e;
+  --surface-raised: #1b2215;
+  --border: #2c3623;
+  --text: #f3f7ee;
+  --muted: #a5af9a;
+  --accent: #c3ff46;
+  --mint: #c3ff46;
+
+  color: var(--text);
+  background: var(--page);
+}
+
+.dashboard-main {
+  background:
+    radial-gradient(ellipse at 80% 0%, #c3ff4609, transparent 45%),
+    var(--page);
+}
+
+.sidebar {
+  background: #0b0e09;
+}
+
+.brand-icon {
+  background: var(--accent);
+  color: #101606;
+}
+
+.sidebar-toggle {
+  background: var(--surface-raised);
+  border-color: var(--border);
+}
+
+.navigation-label,
+.page-footer {
+  color: var(--muted);
+}
+
+.sidebar-navigation a:hover {
+  border-color: #526b2e;
+  background: #202c13;
+  color: var(--accent);
+}
+
+.workspace-avatar {
+  background: #263417;
+  color: var(--accent);
+}
+
+.primary-link {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #101606;
+}
+
+.primary-link:hover {
+  background: #d2ff78;
+}
+
+.overview-card .overview-symbol,
+.overview-card:nth-child(2) .overview-symbol,
+.overview-card:nth-child(3) .overview-symbol {
+  background: #253216;
+  color: var(--accent);
+}
+
+.simulation-video {
+  border-color: var(--border);
+  background: #050704;
+}
+
+.video-placeholder {
+  border-color: #485b31;
+  background:
+    radial-gradient(circle at center, #202b15 0%, #090c07 70%);
+}
+
+.status-badge {
+  border-color: #526b2e;
+  background: #253216;
+  color: var(--accent);
+}
+
+.decision-list > div {
+  border-color: var(--border);
+  background: #0b0f08;
+}
+
+.process-card.is-expanded {
+  border-color: var(--accent);
+  background: #182010;
+  box-shadow: 0 12px 36px #00000040;
+}
+
+.process-card .process-number,
+.process-card:nth-child(2) .process-number,
+.process-card:nth-child(3) .process-number,
+.process-card:nth-child(4) .process-number {
+  border-color: #526b2e;
+  background: #253216;
+  color: var(--accent);
+}
+
+.process-action,
+.code-explanation h3 {
+  color: var(--accent);
+}
+
+.code-explanation {
+  border-left-color: var(--accent);
+  background: #0b0f08;
+}
+
+@media (hover: hover) {
+  .overview-card:hover,
+  .process-card:hover {
+    border-color: var(--accent);
+    box-shadow: 0 12px 30px #c3ff4610;
+  }
+}
