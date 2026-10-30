@@ -37,6 +37,19 @@ Enable it only for a supervised six-cube trial:
 export REMOTE_ARM_STACK_ALL_CUBES=1
 ```
 
+The canonical backend instruction is:
+
+> Detect all six 10 mm cubes, group them by color, and build one vertical
+> tower in this bottom-to-top order: yellow, yellow, blue, blue, red, red.
+> Verify every grasp and placement before continuing. If detection,
+> calibration, grasp verification, or placement verification fails, stop
+> safely rather than guessing.
+
+This exact instruction is resolved locally to `SafeSixCubeStackV1`; Gemini and
+network access are not required during the physical rollout. When the operator
+environment flag enables six-cube mode, the same canonical instruction is
+recorded in the validated task plan and telemetry.
+
 The same mode is selected automatically by an unambiguous instruction such as
 `Stack all six cubes into one tower.` The normal red-on-blue instruction still
 uses `SafeRedOnBlueV1`, and leaving the environment variable unset preserves

@@ -136,6 +136,22 @@ class TestRemoteCellPolicy(unittest.TestCase):
             else:
                 os.environ["GEMINI_API_KEY"] = old_key
 
+    def test_canonical_six_cube_instruction_uses_backend_skill_without_network(self):
+        with mock.patch.object(
+            POLICY.urlrequest,
+            "urlopen",
+            side_effect=AssertionError("network should not be used"),
+        ):
+            plan = POLICY.resolve_task_plan(POLICY.SIX_CUBE_INSTRUCTION)
+
+        self.assertEqual(plan["planner"], "deterministic")
+        self.assertEqual(plan["execution_skill"], "SafeSixCubeStackV1")
+        self.assertEqual(plan["cube_count"], 6)
+        self.assertEqual(
+            tuple(plan["stack_colors_bottom_to_top"]), POLICY.SIX_CUBE_ORDER
+        )
+        self.assertEqual(plan["instruction"], POLICY.SIX_CUBE_INSTRUCTION)
+
     def test_gemini_six_cube_plan_rejects_unsafe_order(self):
         with self.assertRaises(POLICY.InstructionError):
             POLICY._validated_six_cube_task_plan(
@@ -539,6 +555,33 @@ class TestRemoteCellPolicy(unittest.TestCase):
                 for step in plan
             )
         )
+
+    def test_canonical_six_cube_instruction_stops_before_motion_when_layout_missing(self):
+        old_flag = os.environ.get(POLICY.SIX_CUBE_ENV)
+        try:
+            os.environ[POLICY.SIX_CUBE_ENV] = "1"
+            policy = POLICY.Policy()
+            policy._calibration_error = None
+            policy._cams = {"table": {"size": (640, 360)}}
+            table = np.zeros((360, 640, 3), dtype=np.uint8)
+            obs = {
+                "trial": {"instruction": POLICY.SIX_CUBE_INSTRUCTION},
+                "images": {"table": table, "wrist": np.zeros_like(table)},
+                "tcp_pose": [300, 0, -250, -180, 0, 0],
+                "joints": [0, 0, 0, 0, 0, 0, 0],
+            }
+
+            action = np.asarray(policy.act(obs), dtype=float).reshape(-1, 7)
+
+            self.assertEqual(policy.phase, "stopped")
+            self.assertIn("requires exactly 2 safe yellow cubes", policy.reason)
+            self.assertTrue(all(POLICY.tcp_is_safe(row) for row in action))
+            np.testing.assert_allclose(action[-1, :6], obs["tcp_pose"])
+        finally:
+            if old_flag is None:
+                os.environ.pop(POLICY.SIX_CUBE_ENV, None)
+            else:
+                os.environ[POLICY.SIX_CUBE_ENV] = old_flag
 
     def test_six_cube_mode_completes_five_safe_verified_moves(self):
         old_flag = os.environ.get(POLICY.SIX_CUBE_ENV)

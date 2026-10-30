@@ -45,6 +45,13 @@ FIXED_TARGET_ENV = {
     "blue": "REMOTE_ARM_BLUE_XY_MM",
 }
 DEFAULT_INSTRUCTION = "Place the red 10 mm cube on top of the blue 10 mm cube."
+SIX_CUBE_INSTRUCTION = (
+    "Detect all six 10 mm cubes, group them by color, and build one vertical "
+    "tower in this bottom-to-top order: yellow, yellow, blue, blue, red, red. "
+    "Verify every grasp and placement before continuing. If detection, "
+    "calibration, grasp verification, or placement verification fails, stop "
+    "safely rather than guessing."
+)
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
 TASK_SCHEMA = {
     "type": "object",
@@ -848,8 +855,7 @@ class Policy:
                     self.task_plan = resolve_task_plan(instruction)
                 else:
                     self.task_plan = _fixed_six_cube_plan(
-                        instruction
-                        or "Operator enabled a supervised six-cube tower trial.",
+                        SIX_CUBE_INSTRUCTION,
                         planner="operator_env",
                     )
             except InstructionError as instruction_error:
