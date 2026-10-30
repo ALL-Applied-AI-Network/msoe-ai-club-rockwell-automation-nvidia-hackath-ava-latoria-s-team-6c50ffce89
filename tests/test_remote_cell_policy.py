@@ -77,6 +77,87 @@ class TestRemoteCellPolicy(unittest.TestCase):
             else:
                 os.environ["GEMINI_API_KEY"] = old_key
 
+    def test_gemini_six_cube_plan_selects_only_allowlisted_skill(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                task = {
+                    "action": "stack_all",
+                    "shape": "cube",
+                    "size_mm": 10,
+                    "cube_count": 6,
+                    "stack_colors_bottom_to_top": [
+                        "yellow",
+                        "yellow",
+                        "blue",
+                        "blue",
+                        "red",
+                        "red",
+                    ],
+                    "requires_clarification": False,
+                }
+                body = {
+                    "candidates": [
+                        {"content": {"parts": [{"text": json.dumps(task)}]}}
+                    ]
+                }
+                return json.dumps(body).encode("utf-8")
+
+        old_key = os.environ.get("GEMINI_API_KEY")
+        try:
+            os.environ["GEMINI_API_KEY"] = "test-key-never-log"
+            with mock.patch.object(
+                POLICY.urlrequest,
+                "urlopen",
+                return_value=FakeResponse(),
+            ) as call:
+                plan = POLICY.resolve_task_plan(
+                    "Stack all six cubes into one tower.",
+                    force_gemini=True,
+                )
+
+            self.assertEqual(plan["planner"], "gemini")
+            self.assertEqual(plan["execution_skill"], "SafeSixCubeStackV1")
+            self.assertEqual(plan["cube_count"], 6)
+            self.assertEqual(
+                tuple(plan["stack_colors_bottom_to_top"]), POLICY.SIX_CUBE_ORDER
+            )
+            payload = json.loads(call.call_args.args[0].data.decode("utf-8"))
+            schema = payload["generationConfig"]["responseFormat"]["text"]["schema"]
+            self.assertEqual(schema["properties"]["action"]["enum"], ["stack_all"])
+        finally:
+            if old_key is None:
+                os.environ.pop("GEMINI_API_KEY", None)
+            else:
+                os.environ["GEMINI_API_KEY"] = old_key
+
+    def test_gemini_six_cube_plan_rejects_unsafe_order(self):
+        with self.assertRaises(POLICY.InstructionError):
+            POLICY._validated_six_cube_task_plan(
+                {
+                    "action": "stack_all",
+                    "shape": "cube",
+                    "size_mm": 10,
+                    "cube_count": 6,
+                    "stack_colors_bottom_to_top": [
+                        "red",
+                        "red",
+                        "blue",
+                        "blue",
+                        "yellow",
+                        "yellow",
+                    ],
+                    "requires_clarification": False,
+                },
+                instruction="Stack all six cubes.",
+                planner="gemini",
+            )
+
     def test_ambiguous_or_unsupported_instruction_fails_closed(self):
         old_key = os.environ.pop("GEMINI_API_KEY", None)
         try:
@@ -385,6 +466,152 @@ class TestRemoteCellPolicy(unittest.TestCase):
             np.testing.assert_allclose(follow_up[0], first[-1])
             self.assertEqual(follow_up[0, 2], POLICY.SAFE_Z_MM)
         finally:
+            for name, value in original.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+    def test_six_cube_instruction_and_yellow_detector(self):
+        self.assertTrue(POLICY.is_six_cube_instruction("Stack all six cubes into one tower."))
+        self.assertTrue(POLICY.is_six_cube_instruction("Build a tower with 6 cubes."))
+        self.assertFalse(
+            POLICY.is_six_cube_instruction(
+                "Place the red 10 mm cube on top of the blue 10 mm cube."
+            )
+        )
+
+        image = np.zeros((120, 200, 3), dtype=np.uint8)
+        image[30:44, 40:56] = (220, 195, 20)
+        yellow = POLICY.color_center(image, "yellow")
+        self.assertIsNotNone(yellow)
+        self.assertAlmostEqual(yellow[0], 47.5, delta=1.0)
+        self.assertAlmostEqual(yellow[1], 36.5, delta=1.0)
+
+    @staticmethod
+    def _six_cube_table():
+        table = np.zeros((360, 640, 3), dtype=np.uint8)
+        components = [
+            ("yellow", 100, 80, (220, 195, 20)),
+            ("yellow", 520, 80, (220, 195, 20)),
+            ("blue", 180, 180, (20, 30, 230)),
+            ("blue", 460, 180, (20, 30, 230)),
+            ("red", 260, 280, (230, 20, 20)),
+            ("red", 380, 280, (230, 20, 20)),
+        ]
+        for _color, u, v, rgb in components:
+            table[v : v + 12, u : u + 12] = rgb
+        return table
+
+    def test_six_cube_plan_detects_duplicates_and_increases_layer_height(self):
+        policy = POLICY.Policy()
+        policy._calibration_error = None
+        policy._cams = {"table": {"size": (640, 360)}}
+
+        def fake_pixel_to_base(_camera, uv):
+            return np.array(
+                [
+                    (250.0 + float(uv[0]) * 0.45) / 1000.0,
+                    ((float(uv[1]) - 180.0) * 0.50) / 1000.0,
+                    0.0,
+                ]
+            )
+
+        policy._pixel_to_base = fake_pixel_to_base
+        plan = policy._build_six_cube_plan(self._six_cube_table())
+
+        self.assertEqual(len(plan), 5)
+        self.assertEqual(
+            [step["color"] for step in plan],
+            ["yellow", "blue", "blue", "red", "red"],
+        )
+        self.assertEqual(
+            [step["place_z_mm"] for step in plan],
+            [-319.0, -309.0, -299.0, -289.0, -279.0],
+        )
+        self.assertTrue(
+            all(
+                POLICY.tcp_is_safe(
+                    policy._target(
+                        tuple(step["tower_xy_mm"]), step["place_z_mm"], 1.0
+                    )
+                )
+                for step in plan
+            )
+        )
+
+    def test_six_cube_mode_completes_five_safe_verified_moves(self):
+        old_flag = os.environ.get(POLICY.SIX_CUBE_ENV)
+        original = {name: os.environ.get(name) for name in POLICY.FIXED_TARGET_ENV.values()}
+        try:
+            os.environ[POLICY.SIX_CUBE_ENV] = "1"
+            for name in POLICY.FIXED_TARGET_ENV.values():
+                os.environ.pop(name, None)
+            policy = POLICY.Policy()
+            policy._calibration_error = None
+            tower = (420.0, 0.0)
+            sources = [
+                (300.0, -120.0),
+                (340.0, -80.0),
+                (380.0, -120.0),
+                (460.0, -80.0),
+                (500.0, -120.0),
+            ]
+            colors = ["yellow", "blue", "blue", "red", "red"]
+            plan = [
+                {
+                    "layer": layer,
+                    "color": color,
+                    "source_xy_mm": source,
+                    "tower_xy_mm": tower,
+                    "place_z_mm": POLICY.PICK_Z_MM
+                    + POLICY.CUBE_HEIGHT_MM * layer,
+                }
+                for layer, (color, source) in enumerate(
+                    zip(colors, sources), start=1
+                )
+            ]
+
+            def fake_build(_table):
+                policy._six_tower_xy_mm = tower
+                return plan
+
+            policy._build_six_cube_plan = fake_build
+
+            def fake_table_xys(_table, _color):
+                if policy.phase == "verify_pick" or policy._six_current is None:
+                    return [tower]
+                return [tower, tuple(policy._six_current["source_xy_mm"])]
+
+            policy._table_xys = fake_table_xys
+            table = np.zeros((360, 640, 3), dtype=np.uint8)
+            obs = {
+                "trial": {"instruction": "Stack all six cubes into one tower."},
+                "images": {"table": table, "wrist": np.zeros_like(table)},
+                "tcp_pose": [300, 0, -250, -180, 0, 0],
+                "joints": [0, 0, 0, 0, 0, 0, 0],
+            }
+
+            for _ in range(60):
+                action = np.asarray(policy.act(obs), dtype=float).reshape(-1, 7)
+                self.assertTrue(all(POLICY.tcp_is_safe(row) for row in action))
+                obs["tcp_pose"] = action[-1, :6].tolist()
+                obs["joints"][-1] = action[-1, 6]
+                if policy.phase == "complete":
+                    break
+
+            self.assertEqual(policy.phase, "complete")
+            self.assertEqual(policy.result, "success")
+            self.assertEqual(len(policy._six_cube_verified_layers), 5)
+            self.assertEqual(
+                [row["place_z_mm"] for row in policy._six_cube_verified_layers],
+                [-319.0, -309.0, -299.0, -289.0, -279.0],
+            )
+        finally:
+            if old_flag is None:
+                os.environ.pop(POLICY.SIX_CUBE_ENV, None)
+            else:
+                os.environ[POLICY.SIX_CUBE_ENV] = old_flag
             for name, value in original.items():
                 if value is None:
                     os.environ.pop(name, None)

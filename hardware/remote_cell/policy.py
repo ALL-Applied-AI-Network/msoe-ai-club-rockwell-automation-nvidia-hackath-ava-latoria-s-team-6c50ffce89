@@ -29,8 +29,14 @@ TCP_BOX = np.array([[150.0, 650.0], [-450.0, 450.0], [-334.0, 300.0]])
 SAFE_Z_MM = -250.0
 PICK_Z_MM = -329.0
 PLACE_Z_MM = -319.0
+CUBE_HEIGHT_MM = 10.0
 MAX_REACH_MM = 550.0
 OPERATOR_ANCHOR_TOLERANCE_MM = 75.0
+SIX_CUBE_ORDER = ("yellow", "yellow", "blue", "blue", "red", "red")
+SIX_CUBE_ENV = "REMOTE_ARM_STACK_ALL_CUBES"
+SIX_CUBE_MIN_SEPARATION_MM = 25.0
+SIX_CUBE_PLACE_TOLERANCE_MM = 18.0
+SIX_CUBE_SOURCE_REFRESH_MM = 20.0
 TELEMETRY_ROOT = Path(
     os.environ.get("REMOTE_ARM_TELEMETRY_DIR", "/workspace/team-data/remote-arm-telemetry")
 )
@@ -59,10 +65,55 @@ TASK_SCHEMA = {
         "requires_clarification",
     ],
 }
+SIX_CUBE_TASK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "action": {"type": "string", "enum": ["stack_all"]},
+        "shape": {"type": "string", "enum": ["cube"]},
+        "size_mm": {"type": "integer", "enum": [10]},
+        "cube_count": {"type": "integer", "enum": [6]},
+        "stack_colors_bottom_to_top": {
+            "type": "array",
+            "items": {"type": "string", "enum": ["yellow", "blue", "red"]},
+            "minItems": 6,
+            "maxItems": 6,
+        },
+        "requires_clarification": {"type": "boolean"},
+    },
+    "required": [
+        "action",
+        "shape",
+        "size_mm",
+        "cube_count",
+        "stack_colors_bottom_to_top",
+        "requires_clarification",
+    ],
+}
 
 
 class InstructionError(ValueError):
     """Raised when a language instruction cannot be converted safely."""
+
+
+def env_enabled(name: str) -> bool:
+    """Read an explicit boolean environment flag and reject typos."""
+
+    value = os.environ.get(name, "").strip().lower()
+    if value in {"", "0", "false", "no", "off"}:
+        return False
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    raise ValueError(f"{name} must be one of 1/0, true/false, yes/no, or on/off")
+
+
+def is_six_cube_instruction(instruction: str | None) -> bool:
+    """Recognize only clear instructions that request one six-cube tower."""
+
+    normalized = re.sub(r"[^a-z0-9]+", " ", (instruction or "").lower()).strip()
+    count_requested = "six cube" in normalized or "6 cube" in normalized
+    all_requested = "all cube" in normalized or "all six" in normalized
+    stack_requested = "stack" in normalized or "tower" in normalized
+    return bool(stack_requested and (count_requested or all_requested))
 
 
 def _validated_task_plan(raw: dict, *, instruction: str, planner: str) -> dict:
@@ -99,6 +150,61 @@ def _validated_task_plan(raw: dict, *, instruction: str, planner: str) -> dict:
     }
 
 
+def _validated_six_cube_task_plan(
+    raw: dict, *, instruction: str, planner: str
+) -> dict:
+    """Validate a language plan before it can select SafeSixCubeStackV1."""
+
+    if not isinstance(raw, dict):
+        raise InstructionError("six-cube planner did not return an object")
+    required = {
+        "action",
+        "shape",
+        "size_mm",
+        "cube_count",
+        "stack_colors_bottom_to_top",
+        "requires_clarification",
+    }
+    if set(raw) != required:
+        raise InstructionError("six-cube plan has unexpected or missing fields")
+    if raw["action"] != "stack_all" or raw["shape"] != "cube":
+        raise InstructionError("six-cube plan must select the stack_all cube skill")
+    if type(raw["size_mm"]) is not int or raw["size_mm"] != 10:
+        raise InstructionError("six-cube skill requires 10 mm cubes")
+    if type(raw["cube_count"]) is not int or raw["cube_count"] != 6:
+        raise InstructionError("six-cube skill requires exactly six cubes")
+    colors = raw["stack_colors_bottom_to_top"]
+    if not isinstance(colors, list) or tuple(colors) != SIX_CUBE_ORDER:
+        raise InstructionError(
+            "six-cube stack order must be yellow, yellow, blue, blue, red, red"
+        )
+    if type(raw["requires_clarification"]) is not bool:
+        raise InstructionError("requires_clarification must be boolean")
+    if raw["requires_clarification"]:
+        raise InstructionError("six-cube instruction is ambiguous and requires clarification")
+    return {
+        **raw,
+        "instruction": instruction,
+        "planner": planner,
+        "execution_skill": "SafeSixCubeStackV1",
+    }
+
+
+def _fixed_six_cube_plan(instruction: str, *, planner: str) -> dict:
+    return _validated_six_cube_task_plan(
+        {
+            "action": "stack_all",
+            "shape": "cube",
+            "size_mm": 10,
+            "cube_count": 6,
+            "stack_colors_bottom_to_top": list(SIX_CUBE_ORDER),
+            "requires_clarification": False,
+        },
+        instruction=instruction,
+        planner=planner,
+    )
+
+
 def _local_task_plan(instruction: str) -> dict | None:
     """Handle the known benchmark wording without network access or latency."""
 
@@ -129,7 +235,7 @@ def _local_task_plan(instruction: str) -> dict | None:
     return None
 
 
-def _gemini_task_plan(instruction: str) -> dict:
+def _gemini_task_plan(instruction: str, *, six_cube: bool = False) -> dict:
     """Use Gemini structured output as a planner, never as a motion controller."""
 
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -143,9 +249,17 @@ def _gemini_task_plan(instruction: str) -> dict:
     except ValueError as exc:
         raise InstructionError("GEMINI_TIMEOUT_SECONDS must be numeric") from exc
     timeout = min(15.0, max(1.0, timeout))
+    schema = SIX_CUBE_TASK_SCHEMA if six_cube else TASK_SCHEMA
+    skill_note = (
+        "The only selectable skill stacks exactly two yellow, two blue, and two red "
+        "10 mm cubes in yellow, yellow, blue, blue, red, red order. "
+        if six_cube
+        else "The only selectable skill stacks one named 10 mm cube on another. "
+    )
     prompt = (
         "Convert the robot instruction below into the provided task schema. "
-        "Do not invent objects, colors, sizes, coordinates, or actions. Mark "
+        + skill_note
+        + "Do not invent objects, colors, sizes, coordinates, or actions. Mark "
         "requires_clarification true if any required detail is absent or ambiguous. "
         "The output selects a pre-validated skill only; it must never contain "
         "joint angles, poses, code, or motion commands.\n\nInstruction: "
@@ -158,7 +272,7 @@ def _gemini_task_plan(instruction: str) -> dict:
             "responseFormat": {
                 "text": {
                     "mimeType": "APPLICATION_JSON",
-                    "schema": TASK_SCHEMA,
+                    "schema": schema,
                 }
             },
         },
@@ -189,17 +303,26 @@ def _gemini_task_plan(instruction: str) -> dict:
         raw = json.loads(text)
     except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
         raise InstructionError("Gemini response did not contain a valid task plan") from exc
-    return _validated_task_plan(raw, instruction=instruction, planner="gemini")
+    validator = _validated_six_cube_task_plan if six_cube else _validated_task_plan
+    return validator(raw, instruction=instruction, planner="gemini")
 
 
-def resolve_task_plan(instruction: str | None) -> dict:
+def resolve_task_plan(instruction: str | None, *, force_gemini: bool = False) -> dict:
     """Resolve one instruction, preferring the deterministic safe fast path."""
 
     text = (instruction or DEFAULT_INSTRUCTION).strip()
     if not text:
         raise InstructionError("task instruction is empty")
+    if is_six_cube_instruction(text):
+        return (
+            _gemini_task_plan(text, six_cube=True)
+            if force_gemini
+            else _fixed_six_cube_plan(text, planner="deterministic")
+        )
     local = _local_task_plan(text)
-    return local if local is not None else _gemini_task_plan(text)
+    if local is not None and not force_gemini:
+        return local
+    return _gemini_task_plan(text)
 
 
 def component_centers(
@@ -268,6 +391,14 @@ def color_components(
         mask = (r > 85) & (r > g * 1.35) & (r > b * 1.35)
     elif color == "blue":
         mask = (b > 75) & (b > g * 1.25) & (b > r * 1.30)
+    elif color == "yellow":
+        mask = (
+            (r > 90)
+            & (g > 75)
+            & (r > b * 1.35)
+            & (g > b * 1.35)
+            & (np.abs(r - g) < 110)
+        )
     else:
         raise ValueError(f"unsupported color: {color}")
     kernel = np.ones((3, 3), np.uint8)
@@ -405,6 +536,14 @@ class Policy:
         self._pick_verification_source: str | None = None
         self._last_commanded_target: list[float] | None = None
         self.task_plan: dict | None = None
+        self._six_cube_mode = env_enabled(SIX_CUBE_ENV)
+        self._six_cube_plan: list[dict] = []
+        self._six_cube_index = 0
+        self._six_cube_verified_layers: list[dict] = []
+        self._six_current: dict | None = None
+        self._six_source_seen_at_pick_target = False
+        self._six_pick_verification_source: str | None = None
+        self._six_tower_xy_mm: tuple[float, float] | None = None
         self.phase = "locate"
         self.red_xy_mm: tuple[float, float] | None = None
         self.blue_xy_mm: tuple[float, float] | None = None
@@ -547,6 +686,321 @@ class Policy:
         self._last_detections[color] = detection
         return None
 
+    def _table_xys(self, image: np.ndarray, color: str) -> list[tuple[float, float]]:
+        """Return every safely calibrated component for six-cube planning.
+
+        Unlike the proven one-cube path, this method never guesses between
+        duplicate colors and never uses the single-target operator fallback.
+        The six-cube planner validates the exact expected component count.
+        """
+
+        key = f"six_cube_{color}"
+        if self._cams is None or self._pixel_to_base is None:
+            self._last_detections[key] = {
+                "visible": False,
+                "reason": "calibration_unavailable",
+            }
+            return []
+        components = color_components(image, color)
+        native_w, native_h = self._cams["table"]["size"]
+        height, width = image.shape[:2]
+        evaluated: list[dict] = []
+        safe_xy: list[tuple[float, float]] = []
+        for component in components:
+            center = component["center"]
+            uv_native = (center[0] * native_w / width, center[1] * native_h / height)
+            xyz_m = self._pixel_to_base(self._cams["table"], uv_native)
+            xy = float(xyz_m[0] * 1000.0), float(xyz_m[1] * 1000.0)
+            safe = tcp_is_safe(self._target(xy, SAFE_Z_MM, 0.0)) and tcp_is_safe(
+                self._target(xy, PICK_Z_MM, 0.0)
+            )
+            evaluated.append(
+                {
+                    "pixel": [float(center[0]), float(center[1])],
+                    "native_pixel": [float(uv_native[0]), float(uv_native[1])],
+                    "base_xy_mm": [float(xy[0]), float(xy[1])],
+                    "safe": bool(safe),
+                    "area": int(component["area"]),
+                    "bbox": component["bbox"],
+                    "shape_score": float(component["shape_score"]),
+                }
+            )
+            if safe:
+                safe_xy.append(xy)
+        safe_xy.sort(key=lambda xy: (xy[0], xy[1]))
+        self._last_detections[key] = {
+            "visible": bool(components),
+            "component_count": len(components),
+            "safe_component_count": len(safe_xy),
+            "candidates": evaluated,
+            "source": "calibrated_camera_all_components",
+        }
+        return safe_xy
+
+    def _build_six_cube_plan(self, table: np.ndarray) -> list[dict]:
+        """Freeze a deterministic five-move plan that builds a six-cube tower."""
+
+        required = {"yellow": 2, "blue": 2, "red": 2}
+        detected: dict[str, list[tuple[float, float]]] = {}
+        for color, expected in required.items():
+            detected[color] = self._table_xys(table, color)
+            details = self._last_detections.get(f"six_cube_{color}", {})
+            if (
+                len(detected[color]) != expected
+                or details.get("component_count") != expected
+                or details.get("safe_component_count") != expected
+            ):
+                raise ValueError(
+                    f"six-cube mode requires exactly {expected} safe {color} cubes; "
+                    f"found {len(detected[color])}"
+                )
+
+        points = [xy for color in ("yellow", "blue", "red") for xy in detected[color]]
+        for left in range(len(points)):
+            for right in range(left + 1, len(points)):
+                if math.dist(points[left], points[right]) < SIX_CUBE_MIN_SEPARATION_MM:
+                    raise ValueError(
+                        "six-cube starting positions must be at least "
+                        f"{SIX_CUBE_MIN_SEPARATION_MM:.0f} mm apart"
+                    )
+
+        # Leave the yellow cube with the most clearance in place as the tower
+        # base. Five verified pick/place moves then produce a six-cube tower.
+        yellow = detected["yellow"]
+        base_index = max(
+            range(len(yellow)),
+            key=lambda index: min(
+                math.dist(yellow[index], point)
+                for point in points
+                if point != yellow[index]
+            ),
+        )
+        tower_xy = yellow[base_index]
+        by_color = {
+            "yellow": [xy for index, xy in enumerate(yellow) if index != base_index],
+            "blue": list(detected["blue"]),
+            "red": list(detected["red"]),
+        }
+        for candidates in by_color.values():
+            candidates.sort(key=lambda xy: (math.dist(xy, tower_xy), xy[0], xy[1]))
+
+        plan: list[dict] = []
+        for layer, color in enumerate(SIX_CUBE_ORDER[1:], start=1):
+            source_xy = by_color[color].pop(0)
+            place_z = PICK_Z_MM + CUBE_HEIGHT_MM * layer
+            pick_target = self._target(source_xy, PICK_Z_MM, 0.0)
+            place_target = self._target(tower_xy, place_z, 1.0)
+            if not tcp_is_safe(pick_target) or not tcp_is_safe(place_target):
+                raise ValueError(f"unsafe six-cube target at layer {layer}")
+            if SAFE_Z_MM - place_z < 20.0:
+                raise ValueError(f"insufficient tower clearance at layer {layer}")
+            plan.append(
+                {
+                    "layer": layer,
+                    "color": color,
+                    "source_xy_mm": source_xy,
+                    "tower_xy_mm": tower_xy,
+                    "place_z_mm": place_z,
+                }
+            )
+        self._six_tower_xy_mm = tower_xy
+        return plan
+
+    def _start_six_cube_pick(self, index: int) -> None:
+        self._six_cube_index = index
+        self._six_current = self._six_cube_plan[index]
+        self._six_source_seen_at_pick_target = True
+        self._six_pick_verification_source = None
+
+    def _refresh_six_cube_source(self, table: np.ndarray) -> None:
+        """Update the next source from the latest frame without changing identity."""
+
+        if self._six_current is None or self._six_tower_xy_mm is None:
+            raise ValueError("six-cube plan was not initialized")
+        color = str(self._six_current["color"])
+        planned = tuple(self._six_current["source_xy_mm"])
+        candidates = [
+            xy
+            for xy in self._table_xys(table, color)
+            if math.dist(xy, self._six_tower_xy_mm) > SIX_CUBE_PLACE_TOLERANCE_MM
+        ]
+        if not candidates:
+            raise ValueError(f"next {color} source cube is not visible")
+        selected = min(candidates, key=lambda xy: math.dist(xy, planned))
+        error = math.dist(selected, planned)
+        if error > SIX_CUBE_SOURCE_REFRESH_MM:
+            raise ValueError(
+                f"next {color} source moved {error:.1f} mm from its planned location"
+            )
+        self._six_current["source_xy_mm"] = selected
+
+    def _act_six_cube(self, obs: dict, table: np.ndarray, instruction: str | None):
+        """Execute a calibrated, supervised six-cube tower state machine."""
+
+        if self._operator_fallback_active:
+            return self._fail(
+                obs,
+                "six-cube mode requires calibrated camera positions; operator fallback is unsupported",
+            )
+        if self.phase == "locate":
+            try:
+                if is_six_cube_instruction(instruction):
+                    self.task_plan = resolve_task_plan(instruction)
+                else:
+                    self.task_plan = _fixed_six_cube_plan(
+                        instruction
+                        or "Operator enabled a supervised six-cube tower trial.",
+                        planner="operator_env",
+                    )
+            except InstructionError as instruction_error:
+                return self._fail(obs, f"six-cube instruction rejected: {instruction_error}")
+            if self.task_plan.get("execution_skill") != "SafeSixCubeStackV1":
+                return self._fail(obs, "six-cube plan selected an unsupported execution skill")
+            try:
+                self._six_cube_plan = self._build_six_cube_plan(table)
+            except ValueError as planning_error:
+                return self._fail(obs, f"six-cube planning failed: {planning_error}")
+            self.task_plan["tower_xy_mm"] = list(self._six_tower_xy_mm)
+            self._start_six_cube_pick(0)
+            self.phase = "descend_pick"
+            source_xy = tuple(self._six_current["source_xy_mm"])
+            return self._move(obs, self._target(source_xy, SAFE_Z_MM, 0.0))
+
+        current = self._six_current
+        if current is None or self._six_tower_xy_mm is None:
+            return self._fail(obs, "six-cube plan was not initialized")
+        source_xy = tuple(current["source_xy_mm"])
+        color = str(current["color"])
+        place_z = float(current["place_z_mm"])
+
+        if self.phase == "descend_pick":
+            above_pick = self._target(source_xy, SAFE_Z_MM, 0.0)
+            if not self._target_reached(obs, above_pick):
+                return self._move(obs, above_pick)
+            self.phase = "close"
+            return self._move(obs, self._target(source_xy, PICK_Z_MM, 0.0))
+        if self.phase == "close":
+            pick_open = self._target(source_xy, PICK_Z_MM, 0.0)
+            if not self._target_reached(obs, pick_open):
+                return self._move(obs, pick_open)
+            self.phase = "lift"
+            return self._repeat_target(self._target(source_xy, PICK_Z_MM, 1.0), 5)
+        if self.phase == "lift":
+            pick_closed = self._target(source_xy, PICK_Z_MM, 1.0)
+            if not self._target_reached(obs, pick_closed) or not self._gripper_reached(
+                obs, closed=True
+            ):
+                return self._move(obs, pick_closed)
+            self.phase = "verify_pick"
+            return self._move(obs, self._target(source_xy, SAFE_Z_MM, 1.0))
+        if self.phase == "verify_pick":
+            lifted = self._target(source_xy, SAFE_Z_MM, 1.0)
+            if not self._target_reached(obs, lifted) or not self._gripper_reached(
+                obs, closed=True
+            ):
+                return self._move(obs, lifted)
+            remaining = self._table_xys(table, color)
+            source_still_present = any(
+                math.dist(xy, source_xy) < 15.0 for xy in remaining
+            )
+            wrist_has_cube = color_center(
+                obs.get("images", {}).get(
+                    "wrist", np.zeros((1, 1, 3), dtype=np.uint8)
+                ),
+                color,
+            ) is not None
+            joints = np.asarray(obs.get("joints", []), dtype=float).reshape(-1)
+            gripper_closed = bool(
+                joints.size and np.isfinite(joints[-1]) and joints[-1] >= 0.5
+            )
+            if wrist_has_cube:
+                self._six_pick_verification_source = "wrist_camera"
+            elif (
+                self._six_source_seen_at_pick_target
+                and not source_still_present
+                and gripper_closed
+            ):
+                self._six_pick_verification_source = (
+                    "table_source_disappearance_with_closed_gripper"
+                )
+            else:
+                return self._fail(
+                    obs,
+                    f"layer {current['layer']} {color} pickup could not be verified",
+                    closed=True,
+                )
+            self.phase = "descend_place"
+            return self._move(
+                obs, self._target(self._six_tower_xy_mm, SAFE_Z_MM, 1.0)
+            )
+        if self.phase == "descend_place":
+            above_place = self._target(self._six_tower_xy_mm, SAFE_Z_MM, 1.0)
+            if not self._target_reached(obs, above_place):
+                return self._move(obs, above_place)
+            self.phase = "release"
+            return self._move(
+                obs, self._target(self._six_tower_xy_mm, place_z, 1.0)
+            )
+        if self.phase == "release":
+            place_closed = self._target(self._six_tower_xy_mm, place_z, 1.0)
+            if not self._target_reached(obs, place_closed):
+                return self._move(obs, place_closed)
+            self.phase = "retreat"
+            return self._repeat_target(
+                self._target(self._six_tower_xy_mm, place_z, 0.0), 5
+            )
+        if self.phase == "retreat":
+            place_open = self._target(self._six_tower_xy_mm, place_z, 0.0)
+            if not self._target_reached(obs, place_open) or not self._gripper_reached(
+                obs, closed=False
+            ):
+                return self._move(obs, place_open)
+            self.phase = "verify_place"
+            return self._move(
+                obs, self._target(self._six_tower_xy_mm, SAFE_Z_MM, 0.0)
+            )
+        if self.phase == "verify_place":
+            retreated = self._target(self._six_tower_xy_mm, SAFE_Z_MM, 0.0)
+            if not self._target_reached(obs, retreated):
+                return self._move(obs, retreated)
+            placed = any(
+                math.dist(xy, self._six_tower_xy_mm)
+                <= SIX_CUBE_PLACE_TOLERANCE_MM
+                for xy in self._table_xys(table, color)
+            )
+            if not placed:
+                return self._fail(
+                    obs,
+                    f"layer {current['layer']} {color} placement was not verified",
+                )
+            self._six_cube_verified_layers.append(
+                {
+                    "layer": int(current["layer"]),
+                    "color": color,
+                    "place_z_mm": place_z,
+                    "pick_verification_source": self._six_pick_verification_source,
+                }
+            )
+            next_index = self._six_cube_index + 1
+            if next_index >= len(self._six_cube_plan):
+                self.phase = "complete"
+                self.result = "success"
+                self.reason = "six-cube tower completed with five verified placements"
+                return self._hold(obs)
+            self._start_six_cube_pick(next_index)
+            try:
+                self._refresh_six_cube_source(table)
+            except ValueError as source_error:
+                return self._fail(obs, f"six-cube source refresh failed: {source_error}")
+            self.phase = "descend_pick"
+            next_xy = tuple(self._six_current["source_xy_mm"])
+            return self._move(obs, self._target(next_xy, SAFE_Z_MM, 0.0))
+        return self._hold(
+            obs,
+            closed=self.phase == "stopped"
+            and bool(np.asarray(obs.get("joints", [0]))[-1] >= 0.5),
+        )
+
     def _move(self, obs: dict, target: list[float]) -> list[list[float]]:
         # The physical observation trails the queued command.  Replanning each
         # chunk from that delayed pose made the arm pull back toward an older Z
@@ -621,12 +1075,30 @@ class Policy:
                     "phase_after": self.phase,
                     "result": self.result,
                     "reason": self.reason,
+                    "policy_name": (
+                        "SafeSixCubeStackV1"
+                        if self._six_cube_mode
+                        else "SafeRedOnBlueV1"
+                    ),
                     "red_target_xy_mm": list(self.red_xy_mm) if self.red_xy_mm else None,
                     "blue_target_xy_mm": list(self.blue_xy_mm) if self.blue_xy_mm else None,
                     "detections": self._last_detections,
                     "wrist_red_visible": self._last_wrist_red_visible,
                     "pick_verification_source": self._pick_verification_source,
                     "task_plan": self.task_plan,
+                    "six_cube": {
+                        "enabled": self._six_cube_mode,
+                        "move_index": self._six_cube_index,
+                        "move_count": len(self._six_cube_plan),
+                        "tower_xy_mm": (
+                            list(self._six_tower_xy_mm)
+                            if self._six_tower_xy_mm is not None
+                            else None
+                        ),
+                        "current": self._six_current,
+                        "verified_layers": self._six_cube_verified_layers,
+                        "pick_verification_source": self._six_pick_verification_source,
+                    },
                     "rl_enabled": False,
                     "operator_fallback_active": self._operator_fallback_active,
                 },
@@ -699,14 +1171,17 @@ class Policy:
         if table is None:
             return self._fail(obs, "table camera unavailable")
 
+        trial = obs.get("trial", {}) or {}
+        instruction = (
+            trial.get("instruction") if isinstance(trial, dict) else None
+        ) or os.environ.get("REMOTE_ARM_INSTRUCTION")
+        if self.phase == "locate" and is_six_cube_instruction(instruction):
+            self._six_cube_mode = True
+        if self._six_cube_mode:
+            return self._act_six_cube(obs, table, instruction)
+
         if self.phase == "locate":
             if self.task_plan is None:
-                trial = obs.get("trial", {}) or {}
-                instruction = (
-                    trial.get("instruction")
-                    if isinstance(trial, dict)
-                    else None
-                ) or os.environ.get("REMOTE_ARM_INSTRUCTION")
                 try:
                     self.task_plan = resolve_task_plan(instruction)
                 except InstructionError as instruction_error:

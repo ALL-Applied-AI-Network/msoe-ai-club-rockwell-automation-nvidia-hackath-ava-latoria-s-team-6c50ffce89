@@ -13,12 +13,38 @@ Before any physical rollout:
 4. Use the first rollout only to confirm camera colors, calibration, approach
    height, and gripper close direction. Keep the operator ready to stop.
 
-The first physical policy intentionally does **not** use online RL. It detects
+The physical policy intentionally does **not** use online RL. Its validated
+default path detects
 the red and blue cubes in the calibrated table view, executes a slow vertical
 pick/place sequence, verifies the pickup using the table and wrist views, and
 verifies the final red-on-blue placement. Any missing calibration, invalid
 coordinate, missing camera, or failed verification stops the sequence and
 holds the current pose.
+
+## Supervised six-cube mode
+
+`SafeSixCubeStackV1` is a separate, explicitly enabled path for an
+operator-confirmed layout containing exactly two yellow, two blue, and two red
+10 mm cubes. One yellow cube remains on the table as the tower base; the policy
+then makes five verified placements in yellow, blue, blue, red, red order. It
+raises the placement target by 10 mm per layer, maintains a vertical approach
+and retreat, checks every generated TCP target, verifies pickup disappearance
+and the top color at the tower site, and stops on any ambiguity.
+
+Enable it only for a supervised six-cube trial:
+
+```bash
+export REMOTE_ARM_STACK_ALL_CUBES=1
+```
+
+The same mode is selected automatically by an unambiguous instruction such as
+`Stack all six cubes into one tower.` The normal red-on-blue instruction still
+uses `SafeRedOnBlueV1`, and leaving the environment variable unset preserves
+the physically validated behavior. Six-cube mode requires the calibrated table
+camera; the single-position operator fallback is deliberately rejected because
+it cannot identify duplicate colors. Before a physical rollout, confirm the
+six cubes are separated by at least 25 mm, the full tower will remain inside
+the robot workspace, and the operator is ready to stop the first trial.
 
 ## Supervised calibration fallback
 
@@ -64,10 +90,15 @@ Never paste the key into `policy.py`, a YAML file, telemetry, or Git. The key is
 sent only in the `x-goog-api-key` request header and is not written to logs.
 
 Gemini may select only a structured, allowlisted task. It cannot produce TCP
-coordinates, joint angles, motion commands, or executable code. The current
-physical policy has one tested execution skill: stack the red 10 mm cube on the
-blue 10 mm cube. Any ambiguous instruction, unsupported object/action, missing
-key for novel wording, invalid response, timeout, or network error stops before
-motion. Future language-directed skills should be added as separately tested
-state-machine handlers rather than giving the LLM direct robot control.
+coordinates, joint angles, motion commands, or executable code. Separate strict
+schemas cover the validated red-on-blue skill and `SafeSixCubeStackV1`; the
+six-cube schema requires exactly six 10 mm cubes and the fixed yellow, yellow,
+blue, blue, red, red order. The physical policy still resolves the known
+instructions locally, so a rollout does not depend on Gemini or network access.
+The dashboard can force Gemini planning for a preview, validate the returned
+schema, and then pass only the selected allowlisted skill to the state machine.
+Any ambiguous instruction, unsupported object/action, invalid response, timeout,
+or network error stops before motion. Future language-directed skills should be
+added as separately tested state-machine handlers rather than giving the LLM
+direct robot control.
 
