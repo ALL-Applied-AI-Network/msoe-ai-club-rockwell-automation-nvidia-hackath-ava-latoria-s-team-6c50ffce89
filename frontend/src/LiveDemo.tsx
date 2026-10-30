@@ -73,10 +73,11 @@ export default function LiveDemo() {
     }
   }, [])
 
-  const videoPath = dashboard?.media.video_url
+    const videoPath = dashboard?.media.video_url
+
   const videoUrl = videoPath
     ? new URL(videoPath, `${apiBase}/`).href
-    : null
+    : '/fanuc_twin_sort_then_stack.webm'
 
   const timeline = dashboard?.timeline ?? []
 
