@@ -571,12 +571,76 @@ class TestRemoteCellPolicy(unittest.TestCase):
                 "joints": [0, 0, 0, 0, 0, 0, 0],
             }
 
-            action = np.asarray(policy.act(obs), dtype=float).reshape(-1, 7)
+            for _ in range(POLICY.SIX_CUBE_PREFLIGHT_MAX_FRAMES):
+                action = np.asarray(policy.act(obs), dtype=float).reshape(-1, 7)
+                self.assertTrue(all(POLICY.tcp_is_safe(row) for row in action))
 
             self.assertEqual(policy.phase, "stopped")
             self.assertIn("requires exactly 2 safe yellow cubes", policy.reason)
-            self.assertTrue(all(POLICY.tcp_is_safe(row) for row in action))
             np.testing.assert_allclose(action[-1, :6], obs["tcp_pose"])
+        finally:
+            if old_flag is None:
+                os.environ.pop(POLICY.SIX_CUBE_ENV, None)
+            else:
+                os.environ[POLICY.SIX_CUBE_ENV] = old_flag
+
+    def test_six_cube_preflight_requires_three_stable_frames_before_motion(self):
+        old_flag = os.environ.get(POLICY.SIX_CUBE_ENV)
+        try:
+            os.environ[POLICY.SIX_CUBE_ENV] = "1"
+            policy = POLICY.Policy()
+            policy._calibration_error = None
+            tower = (420.0, 0.0)
+            plan = [
+                {
+                    "layer": layer,
+                    "color": color,
+                    "source_xy_mm": source,
+                    "tower_xy_mm": tower,
+                    "place_z_mm": POLICY.PICK_Z_MM
+                    + POLICY.CUBE_HEIGHT_MM * layer,
+                }
+                for layer, (color, source) in enumerate(
+                    zip(
+                        ["yellow", "blue", "blue", "red", "red"],
+                        [
+                            (300.0, -120.0),
+                            (340.0, -80.0),
+                            (380.0, -120.0),
+                            (460.0, -80.0),
+                            (500.0, -120.0),
+                        ],
+                    ),
+                    start=1,
+                )
+            ]
+
+            def fake_build(_table):
+                policy._six_tower_xy_mm = tower
+                return [dict(step) for step in plan]
+
+            policy._build_six_cube_plan = fake_build
+            table = np.zeros((360, 640, 3), dtype=np.uint8)
+            obs = {
+                "trial": {"instruction": POLICY.SIX_CUBE_INSTRUCTION},
+                "images": {"table": table, "wrist": np.zeros_like(table)},
+                "tcp_pose": [300, 0, -250, -180, 0, 0],
+                "joints": [0, 0, 0, 0, 0, 0, 0],
+            }
+
+            for expected in (1, 2):
+                action = np.asarray(policy.act(obs), dtype=float).reshape(-1, 7)
+                self.assertEqual(policy.phase, "locate")
+                self.assertIn(f"{expected}/3", policy.reason)
+                np.testing.assert_allclose(action[-1, :6], obs["tcp_pose"])
+
+            action = np.asarray(policy.act(obs), dtype=float).reshape(-1, 7)
+            self.assertEqual(policy.phase, "descend_pick")
+            self.assertIsNone(policy.reason)
+            self.assertTrue(all(POLICY.tcp_is_safe(row) for row in action))
+            np.testing.assert_allclose(
+                action[-1], policy._target(plan[0]["source_xy_mm"], POLICY.SAFE_Z_MM, 0.0)
+            )
         finally:
             if old_flag is None:
                 os.environ.pop(POLICY.SIX_CUBE_ENV, None)

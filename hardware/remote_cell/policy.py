@@ -37,6 +37,9 @@ SIX_CUBE_ENV = "REMOTE_ARM_STACK_ALL_CUBES"
 SIX_CUBE_MIN_SEPARATION_MM = 25.0
 SIX_CUBE_PLACE_TOLERANCE_MM = 18.0
 SIX_CUBE_SOURCE_REFRESH_MM = 20.0
+SIX_CUBE_PREFLIGHT_STABLE_FRAMES = 3
+SIX_CUBE_PREFLIGHT_MAX_FRAMES = 12
+SIX_CUBE_PREFLIGHT_POSITION_TOLERANCE_MM = 5.0
 TELEMETRY_ROOT = Path(
     os.environ.get("REMOTE_ARM_TELEMETRY_DIR", "/workspace/team-data/remote-arm-telemetry")
 )
@@ -551,6 +554,9 @@ class Policy:
         self._six_source_seen_at_pick_target = False
         self._six_pick_verification_source: str | None = None
         self._six_tower_xy_mm: tuple[float, float] | None = None
+        self._six_preflight_plan: list[dict] | None = None
+        self._six_preflight_stable_frames = 0
+        self._six_preflight_attempts = 0
         self.phase = "locate"
         self.red_xy_mm: tuple[float, float] | None = None
         self.blue_xy_mm: tuple[float, float] | None = None
@@ -819,6 +825,24 @@ class Policy:
         self._six_source_seen_at_pick_target = True
         self._six_pick_verification_source = None
 
+    @staticmethod
+    def _six_cube_plans_match(left: list[dict], right: list[dict]) -> bool:
+        """Require stable calibrated detections before physical motion starts."""
+
+        if len(left) != len(right):
+            return False
+        for previous, current in zip(left, right):
+            if previous["layer"] != current["layer"] or previous["color"] != current["color"]:
+                return False
+            if (
+                math.dist(previous["source_xy_mm"], current["source_xy_mm"])
+                > SIX_CUBE_PREFLIGHT_POSITION_TOLERANCE_MM
+                or math.dist(previous["tower_xy_mm"], current["tower_xy_mm"])
+                > SIX_CUBE_PREFLIGHT_POSITION_TOLERANCE_MM
+            ):
+                return False
+        return True
+
     def _refresh_six_cube_source(self, table: np.ndarray) -> None:
         """Update the next source from the latest frame without changing identity."""
 
@@ -850,22 +874,45 @@ class Policy:
                 "six-cube mode requires calibrated camera positions; operator fallback is unsupported",
             )
         if self.phase == "locate":
-            try:
-                if is_six_cube_instruction(instruction):
-                    self.task_plan = resolve_task_plan(instruction)
-                else:
-                    self.task_plan = _fixed_six_cube_plan(
-                        SIX_CUBE_INSTRUCTION,
-                        planner="operator_env",
-                    )
-            except InstructionError as instruction_error:
-                return self._fail(obs, f"six-cube instruction rejected: {instruction_error}")
+            if self.task_plan is None:
+                try:
+                    if is_six_cube_instruction(instruction):
+                        self.task_plan = resolve_task_plan(instruction)
+                    else:
+                        self.task_plan = _fixed_six_cube_plan(
+                            SIX_CUBE_INSTRUCTION,
+                            planner="operator_env",
+                        )
+                except InstructionError as instruction_error:
+                    return self._fail(obs, f"six-cube instruction rejected: {instruction_error}")
             if self.task_plan.get("execution_skill") != "SafeSixCubeStackV1":
                 return self._fail(obs, "six-cube plan selected an unsupported execution skill")
+            self._six_preflight_attempts += 1
             try:
-                self._six_cube_plan = self._build_six_cube_plan(table)
+                candidate_plan = self._build_six_cube_plan(table)
             except ValueError as planning_error:
-                return self._fail(obs, f"six-cube planning failed: {planning_error}")
+                self._six_preflight_plan = None
+                self._six_preflight_stable_frames = 0
+                self.reason = f"six-cube preflight waiting: {planning_error}"
+                if self._six_preflight_attempts >= SIX_CUBE_PREFLIGHT_MAX_FRAMES:
+                    return self._fail(obs, f"six-cube planning failed: {planning_error}")
+                return self._hold(obs)
+            if self._six_preflight_plan is not None and self._six_cube_plans_match(
+                self._six_preflight_plan, candidate_plan
+            ):
+                self._six_preflight_stable_frames += 1
+            else:
+                self._six_preflight_plan = candidate_plan
+                self._six_preflight_stable_frames = 1
+            if self._six_preflight_stable_frames < SIX_CUBE_PREFLIGHT_STABLE_FRAMES:
+                self.reason = (
+                    "six-cube preflight confirming stable detections "
+                    f"{self._six_preflight_stable_frames}/"
+                    f"{SIX_CUBE_PREFLIGHT_STABLE_FRAMES}"
+                )
+                return self._hold(obs)
+            self._six_cube_plan = candidate_plan
+            self.reason = None
             self.task_plan["tower_xy_mm"] = list(self._six_tower_xy_mm)
             self._start_six_cube_pick(0)
             self.phase = "descend_pick"

@@ -50,6 +50,12 @@ network access are not required during the physical rollout. When the operator
 environment flag enables six-cube mode, the same canonical instruction is
 recorded in the validated task plan and telemetry.
 
+Before issuing the first motion, the backend requires three consecutive frames
+with the same six calibrated cube positions (within 5 mm). It waits for up to
+12 frames and then stops safely if the complete layout never becomes stable.
+This protects a one-shot remote run from a transient or partially loaded camera
+frame without allowing the policy to guess.
+
 The same mode is selected automatically by an unambiguous instruction such as
 `Stack all six cubes into one tower.` The normal red-on-blue instruction still
 uses `SafeRedOnBlueV1`, and leaving the environment variable unset preserves
