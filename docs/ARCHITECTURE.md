@@ -20,13 +20,17 @@ flowchart TB
   end
 
   subgraph PLAN["Task planning"]
-    INSTRUCTION["Natural-language instruction"]
-    GEMINI["Gemini instruction planner<br/>structured task output"]
+    INSTRUCTION["Natural-language instruction<br/>organizer task or dashboard preview"]
+    ROUTER{"Known validated instruction?"}
+    LOCAL["Deterministic local parser<br/>no network dependency"]
+    GEMINI["Gemini instruction planner<br/>strict structured JSON only"]
     VALIDATE{"Schema and allowlist validation"}
-    TASK["Validated task plan<br/>skill, source, destination, and size"]
+    TASK["Validated task plan<br/>allowlisted skill and object parameters"]
     REJECT["Clarification or supervised safe stop"]
 
-    INSTRUCTION --> GEMINI --> VALIDATE
+    INSTRUCTION --> ROUTER
+    ROUTER -->|Known task| LOCAL --> VALIDATE
+    ROUTER -->|Flexible wording| GEMINI --> VALIDATE
     VALIDATE -->|Accepted| TASK
     VALIDATE -->|Rejected| REJECT
   end
@@ -67,6 +71,7 @@ flowchart TB
   end
 
   STATE -. state and retries .-> API
+  TASK -. validated instruction plan .-> API
   CLASSIFIER -. prediction and confidence .-> API
   RL -. correction and action .-> API
   EXECUTE -. timing and motion status .-> API
@@ -81,8 +86,8 @@ flowchart TB
 
   class TWIN,ROLLOUTS,DATA compute;
   class TRAIN,MODEL,GEMINI,CLASSIFIER,RL learned;
-  class TASK,PERCEPTION,STATE,MOTION,PLACE control;
-  class VALIDATE,REJECT,SAFETY safety;
+  class LOCAL,TASK,PERCEPTION,STATE,MOTION,PLACE control;
+  class ROUTER,VALIDATE,REJECT,SAFETY safety;
   class EXECUTE,TARGET,SIM,FANUC,FRAMES hardware;
   class API,DASH,REVIEW telemetry;
 ```
@@ -94,9 +99,17 @@ generate repeatable successes and intentional failures, and train the Siamese
 grasp verifier on before-and-after RGB image pairs. The selected checkpoint is
 then loaded by the runtime verifier.
 
-At runtime, Gemini converts the language instruction into a structured task
-plan. A schema and allowlist gate rejects ambiguous or unsupported plans before
-motion begins. Table-camera perception locates the source and destination
+At runtime, a guarded instruction router first checks whether the request is a
+known validated task. The red-on-blue and six-cube tower instructions use a
+deterministic local parser, so physical execution does not depend on Gemini or
+network availability. Flexible wording can use Gemini to produce strict
+structured JSON, but its output must pass the same schema and allowlist gate.
+Gemini can select only a tested high-level skill and object parameters; it
+cannot generate coordinates, joint commands, trajectories, or executable code.
+Ambiguous instructions, unsupported objects, unexpected fields, timeouts, and
+network failures are rejected before motion begins.
+
+After planning, table-camera perception locates the source and destination
 objects, and the deterministic recovery state machine sequences the manipulation
 steps. The Siamese model predicts whether the grasp succeeded, while the
 safety-shielded Q-learning policy can propose only a small placement correction,
