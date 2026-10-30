@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/stacking-recovery.iml" filepath="$PROJECT_DIR$/.idea/stacking-recovery.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/stacking-recovery@1.iml" filepath="$PROJECT_DIR$/.idea/stacking-recovery@1.iml" />
     </modules>
   </component>
 </project>
