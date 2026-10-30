@@ -26,6 +26,7 @@ flowchart TB
     GEMINI["Gemini instruction planner<br/>strict structured JSON only"]
     VALIDATE{"Schema and allowlist validation"}
     TASK["Validated task plan<br/>allowlisted skill and object parameters"]
+    SKILL["Tested execution skill<br/>red-on-blue or six-cube tower"]
     REJECT["Clarification or supervised safe stop"]
 
     INSTRUCTION --> ROUTER
@@ -33,30 +34,35 @@ flowchart TB
     ROUTER -->|Flexible wording| GEMINI --> VALIDATE
     VALIDATE -->|Accepted| TASK
     VALIDATE -->|Rejected| REJECT
+    TASK --> SKILL
   end
 
   subgraph LOOP["Predictive closed-loop manipulation"]
     PERCEPTION["Table-camera perception<br/>cube color and position"]
+    PREFLIGHT{"Physical preflight<br/>calibration + 3 stable frames"}
     STATE["Recovery state machine<br/>locate through final verification"]
     FRAMES["Before-and-after RGB frames"]
     CLASSIFIER["Siamese grasp verifier<br/>prediction and confidence"]
-    RL["Safety-shielded Q-learning<br/>bounded XY correction, retry, or stop"]
+    RL["Safety-shielded Q-learning<br/>simulation-only bounded correction"]
     MOTION["Inverse kinematics and<br/>interpolated trajectory"]
     SAFETY{"Workspace, tolerance,<br/>retry, and safe-stop gates"}
     EXECUTE["Execute permitted motion"]
     TARGET{"Execution target"}
     SIM["Isaac Sim<br/>digital-twin validation"]
+    REMOTE["Official remote client<br/>calibrated TCP action API"]
     FANUC["CSI FANUC workcell<br/>supervised physical validation"]
-    PLACE["Placement and tower verification"]
+    PLACE["Grasp, placement, and<br/>tower verification"]
 
-    TASK --> PERCEPTION --> STATE
+    SKILL --> PERCEPTION
+    PERCEPTION -->|Simulation| STATE
+    PERCEPTION -->|Physical| PREFLIGHT --> STATE
     MODEL --> CLASSIFIER
     FRAMES --> CLASSIFIER -->|GOOD, BAD, or uncertain| STATE
     STATE --> MOTION
     STATE --> RL -->|Bounded correction| MOTION
     MOTION --> SAFETY --> EXECUTE --> TARGET
     TARGET --> SIM
-    TARGET --> FANUC
+    TARGET --> REMOTE --> FANUC
     SIM --> FRAMES
     FANUC --> FRAMES
     FRAMES --> PLACE --> STATE
@@ -72,9 +78,11 @@ flowchart TB
 
   STATE -. state and retries .-> API
   TASK -. validated instruction plan .-> API
+  PREFLIGHT -. calibration and stability .-> API
   CLASSIFIER -. prediction and confidence .-> API
   RL -. correction and action .-> API
   EXECUTE -. timing and motion status .-> API
+  REMOTE -. physical command telemetry .-> API
   PLACE -. placement measurements .-> API
 
   classDef compute fill:#e8f2ff,stroke:#2563a6,color:#111827;
@@ -86,9 +94,9 @@ flowchart TB
 
   class TWIN,ROLLOUTS,DATA compute;
   class TRAIN,MODEL,GEMINI,CLASSIFIER,RL learned;
-  class LOCAL,TASK,PERCEPTION,STATE,MOTION,PLACE control;
-  class ROUTER,VALIDATE,REJECT,SAFETY safety;
-  class EXECUTE,TARGET,SIM,FANUC,FRAMES hardware;
+  class LOCAL,TASK,SKILL,PERCEPTION,STATE,MOTION,PLACE control;
+  class ROUTER,VALIDATE,REJECT,PREFLIGHT,SAFETY safety;
+  class EXECUTE,TARGET,SIM,REMOTE,FANUC,FRAMES hardware;
   class API,DASH,REVIEW telemetry;
 ```
 
@@ -116,12 +124,18 @@ safety-shielded Q-learning policy can propose only a small placement correction,
 retry, or stop. Inverse kinematics, trajectory interpolation, workspace limits,
 position tolerances, and retry limits remain authoritative.
 
-The same control path can target the Isaac Sim workcell or the supervised CSI
-FANUC cell. Every prediction, state transition, RL decision, timing measurement,
-and verification result is sent one way to the read-only dashboard API. The
-React and TypeScript dashboard synchronizes those records with video so an
-operator can see what the system predicted, what it decided, and whether the
-action succeeded.
+The same safety-constrained state-machine path can target the Isaac Sim workcell
+or the supervised CSI FANUC cell. The physical path adds a fail-closed preflight
+that requires valid calibration and three stable six-cube detections before the
+first command, then sends bounded TCP targets through the organizers' official
+remote client. Online reinforcement learning is intentionally disabled on the
+physical arm; only validated deterministic skills can command it.
+
+Every task plan, prediction, preflight result, state transition, RL decision,
+timing measurement, physical command, and verification result is sent one way
+to the read-only dashboard API. The React and TypeScript dashboard synchronizes
+those records with video so an operator can see what the system predicted, what
+it decided, and whether the action succeeded.
 
 ## Repository map
 
