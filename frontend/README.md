@@ -5,14 +5,15 @@ the model evidence that produced each decision. It never sends robot commands.
 
 The app has five operations views:
 
-- **Live run** — synchronized video, classifier result, state-machine step,
+- **Run monitor** — synchronized video, classifier result, state-machine step,
   safety gates, task plan and event timeline;
 - **Metrics** — measured classifier, confusion-matrix and bounded-RL results;
 - **Grasp review** and **Stack validation** — human GOOD/BAD labels queued as
   evidence for a later, supervised offline retraining pass;
 - **Instruction studio** — a dry-run task-plan preview using the existing
   deterministic/Gemini planning boundary;
-- **CSI lab runs** — real run/session summaries found beside the active run.
+- **Videos & runs** — the full digital-twin recording plus all 12 table-camera
+  episodes from the latest CSI trial, with side and wrist views where available.
 
 ## Run locally
 

@@ -35,6 +35,7 @@ hardware/cad/*
 *.safetensors
 models/*.meta.json
 !models/grasp_pickup_table_resnet18_siamese_224.pt
+!docs/demo/*.mp4
 
 # Stretch training artifacts
 stretch/yolo/runs/

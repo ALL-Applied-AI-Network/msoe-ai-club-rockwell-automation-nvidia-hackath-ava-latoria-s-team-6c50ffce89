@@ -165,27 +165,26 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <a className="brand" href="#overview" aria-label="Dashboard home">
-          <span className="brand-mark"><Icon name="robot" /></span>
-          <span><strong>StackSense</strong><small>Closed-loop manipulation</small></span>
+          <img className="brand-logo" src="/stacksense-logo.png" alt="StackSense" />
         </a>
         <nav className="app-tabs" aria-label="Dashboard views">
-          <button type="button" className={activeTab === 'live' ? 'active' : ''} onClick={() => setActiveTab('live')}>Live run</button>
-          <button type="button" className={activeTab === 'trials' ? 'active' : ''} onClick={() => setActiveTab('trials')}>Operations dashboard</button>
+          <button type="button" className={activeTab === 'live' ? 'active' : ''} onClick={() => setActiveTab('live')}>Run monitor</button>
+          <button type="button" className={activeTab === 'trials' ? 'active' : ''} onClick={() => setActiveTab('trials')}>Results & review</button>
         </nav>
         <div className="topbar-meta">
           <span className={`connection-pill ${connection}`}><i />{connectionMessage}</span>
-          <span className="read-only"><Icon name="shield" /> Read-only dashboard</span>
+          <span className="read-only"><Icon name="shield" /> Monitor only</span>
         </div>
       </header>
 
       {activeTab === 'live' ? <main id="overview">
         <section className="hero">
           <div>
-            <p className="eyebrow">MSOE · ROCKWELL AUTOMATION · NVIDIA</p>
-            <h1>See what the robot sees, predicts, and decides.</h1>
+            <p className="eyebrow">CURRENT RUN</p>
+            <h1>Robot run monitor</h1>
             <p className="hero-copy">
-              Video and policy telemetry share one view, so every grasp, recovery decision,
-              and safety handoff can be reviewed without giving the dashboard robot control.
+              Watch the run and review the current model prediction, robot step, safety status,
+              and measured results in one place.
             </p>
           </div>
           <div className="run-identity">
@@ -205,7 +204,7 @@ function App() {
         <section className="workspace" aria-label="Video and live decision data">
           <article className="panel video-panel">
             <div className="panel-heading">
-              <div><p className="section-kicker">RUN VIEW</p><h2>{apiVideo ? 'Run recording' : 'Digital twin demonstration'}</h2></div>
+              <div><p className="section-kicker">VIDEO</p><h2>{apiVideo ? 'Run recording' : 'Digital twin recording'}</h2></div>
               <span className={`source-badge ${isSyncedRecording ? 'synced' : ''}`}>{isSyncedRecording ? 'Telemetry synced' : 'Video reference'}</span>
             </div>
             <div className="video-frame">
@@ -238,7 +237,7 @@ function App() {
 
           <article className="panel decision-panel">
             <div className="panel-heading">
-              <div><p className="section-kicker">CURRENT DECISION</p><h2>What the system is doing</h2></div>
+              <div><p className="section-kicker">ROBOT STATUS</p><h2>Current step</h2></div>
               <span className={`result-badge ${display.grasp_result}`}>{compact(display.grasp_result)}</span>
             </div>
 
@@ -273,7 +272,7 @@ function App() {
 
         <section className="evidence-grid">
           <article className="panel plan-panel">
-            <div className="panel-heading"><div><p className="section-kicker">TASK PLAN</p><h2>Instruction to guarded skill</h2></div><span className={`plan-status ${plan?.status ?? 'waiting'}`}>{compact(plan?.status, 'waiting')}</span></div>
+            <div className="panel-heading"><div><p className="section-kicker">TASK</p><h2>Instruction and plan</h2></div><span className={`plan-status ${plan?.status ?? 'waiting'}`}>{compact(plan?.status, 'waiting')}</span></div>
             <blockquote>{plan?.instruction ?? 'Waiting for a validated task instruction.'}</blockquote>
             <div className="plan-route">
               <div><span>Planner</span><strong>{compact(plan?.planner, 'Not selected')}</strong></div><b>→</b>
@@ -284,7 +283,7 @@ function App() {
           </article>
 
           <article className="panel metrics-panel">
-            <div className="panel-heading"><div><p className="section-kicker">RUN EVIDENCE</p><h2>Measured results</h2></div><span className="evidence-label">Recorded values only</span></div>
+            <div className="panel-heading"><div><p className="section-kicker">RESULTS</p><h2>Run metrics</h2></div><span className="evidence-label">Recorded values</span></div>
             <dl className="metric-list">
               <div><dt>Completed actions</dt><dd>{numberValue(completedGrabs)}<small>{typeof totalGrabs === 'number' ? ` of ${totalGrabs}` : ''}</small></dd></div>
               <div><dt>Verified placements</dt><dd>{numberValue(snapshot?.metrics.verified_placements)}</dd></div>
@@ -298,7 +297,7 @@ function App() {
         </section>
 
         <section className="panel timeline-panel">
-          <div className="panel-heading"><div><p className="section-kicker">EVENT TRACE</p><h2>Recorded decision timeline</h2></div><span className="evidence-label">{snapshot?.timeline.length ?? 0} events</span></div>
+          <div className="panel-heading"><div><p className="section-kicker">TIMELINE</p><h2>Run events</h2></div><span className="evidence-label">{snapshot?.timeline.length ?? 0} events</span></div>
           {snapshot?.timeline.length ? (
             <div className="timeline-list">
               {snapshot.timeline.slice(-12).map((event, index) => (
@@ -313,7 +312,7 @@ function App() {
         </section>
       </main> : <TrialDashboard snapshot={snapshot} />}
 
-      <footer><span>Predictive perception · deterministic safety boundary</span><span>Dashboard never sends robot commands</span></footer>
+      <footer><span>StackSense robot monitoring</span><span>View and review only — robot control remains separate</span></footer>
     </div>
   )
 }
