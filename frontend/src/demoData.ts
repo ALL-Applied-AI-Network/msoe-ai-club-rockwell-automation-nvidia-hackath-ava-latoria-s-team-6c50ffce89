@@ -7,23 +7,29 @@ export interface PhysicalEpisode {
   src: string
   durationS: number
   thumbnail: string
+  graspThumbnail: string
+  stackThumbnail: string
 }
 
-export const PHYSICAL_EPISODES: PhysicalEpisode[] = [
+const PHYSICAL_EPISODE_DURATIONS = [
   16.8, 23.3, 28.9, 24.2, 30.2, 25.1, 22.2, 25.6, 6.6, 24.7, 21.7, 32.0,
-].map((durationS, index) => ({
-  id: index + 1,
-  title: `Episode ${index + 1}`,
-  camera: 'Table camera',
-  src: `/csi_episode_${index}_table.mp4`,
-  durationS,
-  thumbnail: `/episode_thumbnails/csi_episode_${index}_table.jpg`,
-}))
-
-export const PHYSICAL_DETAIL_VIDEOS = [
-  { title: 'Episode 2', camera: 'Side camera', src: '/csi_episode_1_side.mp4' },
-  { title: 'Episode 2', camera: 'Wrist camera', src: '/csi_episode_1_wrist.mp4' },
 ]
+
+// Episode 0 used the wrong part setup, so it is intentionally excluded from
+// the evidence gallery and every calculated physical-machine metric.
+export const PHYSICAL_EPISODES: PhysicalEpisode[] = PHYSICAL_EPISODE_DURATIONS.slice(1).map((durationS, offset) => {
+  const index = offset + 1
+  return {
+    id: index,
+    title: `Episode ${index}`,
+    camera: 'Table camera',
+    src: `/csi_episode_${index}_table.mp4`,
+    durationS,
+    thumbnail: `/episode_thumbnails/csi_episode_${index}_table.jpg`,
+    graspThumbnail: `/episode_evidence/episode_${index}_grasp_side.jpg`,
+    stackThumbnail: `/episode_evidence/episode_${index}_stack_side.jpg`,
+  }
+})
 
 const MOVE_DURATION_S = 9.2
 export const DEMO_DURATION_S = 110.4

@@ -40,3 +40,10 @@ models/*.meta.json
 # Stretch training artifacts
 stretch/yolo/runs/
 stretch/yolo/weights/
+.env.local
+docs/demo/episode_evidence/*_full.png
+docs/demo/episode_evidence/*_compact.png
+docs/demo/episode_evidence/contact_sheet.jpg
+docs/demo/episode_evidence/enlarged_test.png
+docs/demo/episode_evidence/manual_test.png
+docs/demo/episode_evidence/sample_*.png

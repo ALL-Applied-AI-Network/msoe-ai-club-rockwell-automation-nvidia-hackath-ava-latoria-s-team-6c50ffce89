@@ -8,14 +8,16 @@ The app has five operations views:
 - **Run monitor** — synchronized video, classifier result, state-machine step,
   safety gates, task plan and event timeline;
 - **Machine metrics** — recording coverage, cycle time, and human-validated
-  outcomes from the 12 CSI physical-machine episodes (not training metrics);
+  outcomes from the 11 valid CSI physical-machine episodes (not training
+  metrics; Episode 0 is excluded because it used the wrong part setup);
 - **Grasp feedback** and **Stack feedback** — synchronized replay checkpoints
   plus episode images and human labels queued as evidence for a later,
   supervised offline retraining pass;
 - **Instruction studio** — a dry-run task-plan preview using the existing
   deterministic/Gemini planning boundary;
-- **Videos & runs** — the full digital-twin recording plus all 12 table-camera
-  episodes from the latest CSI trial, with side and wrist views where available.
+- **Videos & runs** — the full digital-twin recording plus the 11 valid
+  table-camera episodes from the latest CSI trial, with per-episode side-camera
+  grasp and placement images for human approval or denial.
 
 When the selected API run has no saved event timeline, the run monitor uses the
 checked-in 110.4-second digital-twin replay timeline. Its 120 state-machine

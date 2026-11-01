@@ -4,12 +4,31 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+
+
+def _load_local_gemini_settings() -> None:
+    settings = ROOT / ".env.local"
+    if not settings.is_file():
+        return
+    allowed = {"GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_TIMEOUT_SECONDS"}
+    for raw_line in settings.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key in allowed:
+            os.environ.setdefault(key, value.strip().strip('"').strip("'"))
+
+
+_load_local_gemini_settings()
 
 from stacking_recovery.dashboard_api import create_server  # noqa: E402
 
