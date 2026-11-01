@@ -252,6 +252,9 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 20px
 .video-card > div:first-child { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; }
 .video-card strong { font-size: 13px; }
 .video-card span { color: var(--muted); font-size: 11px; }
+.video-card .episode-card-summary { display: grid; gap: 5px; min-height: 92px; padding: 12px 14px; border-top: 1px solid var(--line); background: var(--surface-2); }
+.video-card .episode-card-summary strong { color: var(--text); line-height: 1.4; }
+.video-card .episode-card-summary p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .video-card video { aspect-ratio: 16 / 9; background: #0f172a; }
 .episode-rating { margin-left: auto; padding: 4px 7px; border-radius: 99px; color: #475569; background: #e2e8f0; font-size: 9px !important; white-space: nowrap; }
 .episode-rating.good { color: #166534; background: #dcfce7; }

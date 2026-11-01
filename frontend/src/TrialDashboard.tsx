@@ -51,8 +51,6 @@ function EpisodeReview({ episode, review, graspReview, stackReview, onReview }: 
       <summary>How this episode did</summary>
       <div className="episode-explanation">
         <p><strong>Overall:</strong> {ratingText(review)}</p>
-        <p><strong>Recorded outcome:</strong> {episode.outcome}</p>
-        <p>{episode.description}</p>
         <p><strong>Grasp:</strong> {ratingText(graspReview)} · <strong>Stack:</strong> {ratingText(stackReview)}</p>
         <p>{review === 'GOOD' ? 'The recorded episode result is successful. Use the grasp and stack pages for separate human validation.' : 'This recording is incomplete or needs follow-up; do not count it as a complete manipulation cycle.'}</p>
       </div>
@@ -92,7 +90,7 @@ function LabRuns({ reviews, onReview, syncStatus }: { reviews: ReviewMap; onRevi
     {videoView === 'episodes' ? <>
       <div className="video-library">{PHYSICAL_EPISODES.map((episode) => {
         const episodeReview = reviews[episodeId(episode)] ?? episode.recordedRating
-        return <article className="video-card" key={episode.src}><div><strong>{episode.title}</strong><span>{episode.camera} · {episode.durationS.toFixed(1)} s</span><b className={`episode-rating ${episodeReview === 'GOOD' ? 'good' : 'bad'}`}>{ratingText(episodeReview)}</b></div><video controls preload="metadata" playsInline src={episode.src} /><EpisodeReview episode={episode} review={episodeReview} graspReview={reviews[evidenceId('grasp', episode)]} stackReview={reviews[evidenceId('stack', episode)]} onReview={onReview} /></article>
+        return <article className="video-card" key={episode.src}><div><strong>{episode.title}</strong><span>{episode.camera} · {episode.durationS.toFixed(1)} s</span><b className={`episode-rating ${episodeReview === 'GOOD' ? 'good' : 'bad'}`}>{ratingText(episodeReview)}</b></div><div className="episode-card-summary"><strong>{episode.outcome}</strong><p>{episode.description}</p></div><video controls preload="metadata" playsInline src={episode.src} /><EpisodeReview episode={episode} review={episodeReview} graspReview={reviews[evidenceId('grasp', episode)]} stackReview={reviews[evidenceId('stack', episode)]} onReview={onReview} /></article>
       })}</div>
     </> : <div className="video-library single"><article className="video-card"><div><strong>{TWIN_VIDEO.title}</strong><span>{TWIN_VIDEO.camera} · synchronized on Run monitor</span></div><video controls preload="metadata" playsInline src={TWIN_VIDEO.src} /></article></div>}
     <p className="feedback-status">{syncStatus}</p>
