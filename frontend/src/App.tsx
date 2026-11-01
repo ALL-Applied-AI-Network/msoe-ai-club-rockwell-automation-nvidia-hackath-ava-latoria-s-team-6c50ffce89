@@ -4,7 +4,6 @@ import {
   apiUrl,
   fetchDashboard,
   timelineEventAt,
-  type ConnectionState,
   type DashboardSnapshot,
   type DisplayValues,
   type TimelineEvent,
@@ -48,12 +47,6 @@ function numberValue(value: number | boolean | null | undefined, suffix = '') {
   return typeof value === 'number' ? `${Number(value.toFixed(2))}${suffix}` : '—'
 }
 
-function dateTime(value: string | null | undefined) {
-  if (!value) return 'No timestamp yet'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
-}
-
 function workflowIndex(display: DisplayValues) {
   const value = `${display.phase} ${display.state_machine_step}`.toLowerCase()
   if (/detect|locate|starting|observe/.test(value)) return 0
@@ -76,12 +69,9 @@ function Icon({ name }: { name: 'camera' | 'model' | 'route' | 'shield' | 'robot
 function App() {
   const [activeTab, setActiveTab] = useState<'live' | 'trials'>('live')
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>(DEMO_SNAPSHOT)
-  const [connection, setConnection] = useState<ConnectionState>('connecting')
-  const [connectionMessage, setConnectionMessage] = useState('Connecting to run data')
   const [videoTime, setVideoTime] = useState(0)
   const [videoError, setVideoError] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const hasSnapshot = useRef(true)
 
   useEffect(() => {
     let mounted = true
@@ -92,27 +82,10 @@ function App() {
       try {
         const next = await fetchDashboard(controller.signal)
         if (!mounted) return
-        hasSnapshot.current = true
         const usableSnapshot = next.timeline.length ? next : DEMO_SNAPSHOT
         setSnapshot(usableSnapshot)
-        setConnection('live')
-        setConnectionMessage(
-          !next.timeline.length
-            ? 'Synchronized digital-twin replay'
-            : next.run.source === 'physical_robot'
-            ? 'Live lab telemetry'
-            : next.run.mode === 'recorded'
-              ? 'Recorded run telemetry'
-              : 'Live simulation telemetry',
-        )
-      } catch (error) {
+      } catch {
         if (!mounted) return
-        setConnection((previous) => (previous === 'live' || hasSnapshot.current ? 'stale' : 'offline'))
-        setConnectionMessage(
-          error instanceof Error && error.name !== 'AbortError'
-            ? 'Run API unavailable'
-            : 'Run API timed out',
-        )
       } finally {
         window.clearTimeout(timeout)
       }
@@ -185,10 +158,6 @@ function App() {
           <button type="button" className={activeTab === 'live' ? 'active' : ''} onClick={() => setActiveTab('live')}>Run monitor</button>
           <button type="button" className={activeTab === 'trials' ? 'active' : ''} onClick={() => setActiveTab('trials')}>Machine episodes</button>
         </nav>
-        <div className="topbar-meta">
-          <span className={`connection-pill ${connection}`}><i />{connectionMessage}</span>
-          <span className="read-only"><Icon name="shield" /> Monitor only</span>
-        </div>
       </header>
 
       {activeTab === 'live' ? <main id="overview">
@@ -201,13 +170,6 @@ function App() {
               and measured results in one place.
             </p>
           </div>
-        </section>
-
-        <section className="run-strip" aria-label="Run overview">
-          <div><span>Run state</span><strong>{isDemoReplay ? 'Replaying' : compact(snapshot.run.state, 'Demo only')}</strong></div>
-          <div><span>Current phase</span><strong>{compact(display.phase)}</strong></div>
-          <div><span>Safety</span><strong className={current?.action_safe === false ? 'danger' : 'good'}>{current?.action_safe === false ? 'Blocked' : current?.action_safe === true ? 'Targets validated' : 'No fault reported'}</strong></div>
-          <div><span>Updated</span><strong>{isDemoReplay ? 'Recorded replay' : dateTime(snapshot.run.updated_at)}</strong></div>
         </section>
 
         <section className="workspace" aria-label="Video and live decision data">

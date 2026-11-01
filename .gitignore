@@ -47,3 +47,8 @@ docs/demo/episode_evidence/contact_sheet.jpg
 docs/demo/episode_evidence/enlarged_test.png
 docs/demo/episode_evidence/manual_test.png
 docs/demo/episode_evidence/sample_*.png
+docs/demo/episode_evidence/*_grasp_candidate_*.png
+docs/demo/episode_evidence/*_side_clip_*.png
+docs/demo/episode_evidence/*_side_exact_*.png
+docs/demo/episode_evidence/*_side_true_*.png
+docs/demo/episode_evidence/grasp_*_contact_sheet.jpg
