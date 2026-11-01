@@ -9,6 +9,7 @@ import {
   type DisplayValues,
   type TimelineEvent,
 } from './dashboard'
+import { DEMO_DURATION_S, DEMO_MOVE_DURATION_S, DEMO_SNAPSHOT } from './demoData'
 import TrialDashboard from './TrialDashboard'
 
 const RECORDED_TWIN_VIDEO = '/fanuc_twin_sort_then_stack.webm'
@@ -74,13 +75,13 @@ function Icon({ name }: { name: 'camera' | 'model' | 'route' | 'shield' | 'robot
 
 function App() {
   const [activeTab, setActiveTab] = useState<'live' | 'trials'>('live')
-  const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null)
+  const [snapshot, setSnapshot] = useState<DashboardSnapshot>(DEMO_SNAPSHOT)
   const [connection, setConnection] = useState<ConnectionState>('connecting')
   const [connectionMessage, setConnectionMessage] = useState('Connecting to run data')
   const [videoTime, setVideoTime] = useState(0)
   const [videoError, setVideoError] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const hasSnapshot = useRef(false)
+  const hasSnapshot = useRef(true)
 
   useEffect(() => {
     let mounted = true
@@ -92,10 +93,13 @@ function App() {
         const next = await fetchDashboard(controller.signal)
         if (!mounted) return
         hasSnapshot.current = true
-        setSnapshot(next)
+        const usableSnapshot = next.timeline.length ? next : DEMO_SNAPSHOT
+        setSnapshot(usableSnapshot)
         setConnection('live')
         setConnectionMessage(
-          next.run.source === 'physical_robot'
+          !next.timeline.length
+            ? 'Synchronized digital-twin replay'
+            : next.run.source === 'physical_robot'
             ? 'Live lab telemetry'
             : next.run.mode === 'recorded'
               ? 'Recorded run telemetry'
@@ -122,38 +126,51 @@ function App() {
     }
   }, [])
 
-  const apiVideo = apiUrl(snapshot?.media.video_url ?? null)
+  const isDemoReplay = snapshot.run.id === DEMO_SNAPSHOT.run.id
+  const apiVideo = apiUrl(snapshot.media.video_url ?? null)
   const videoUrl = apiVideo ?? RECORDED_TWIN_VIDEO
-  const isSyncedRecording = Boolean(apiVideo && snapshot?.timeline.length)
+  const isSyncedRecording = Boolean(snapshot.timeline.length)
   const activeEvent = useMemo(
-    () => (snapshot && isSyncedRecording ? timelineEventAt(snapshot, videoTime) : null),
+    () => (isSyncedRecording ? timelineEventAt(snapshot, videoTime) : null),
     [isSyncedRecording, snapshot, videoTime],
   )
-  const display = activeEvent ?? snapshot?.display ?? EMPTY_DISPLAY
-  const current = snapshot?.current
-  const plan = snapshot?.planning
+  const display = activeEvent ?? snapshot.display ?? EMPTY_DISPLAY
+  const activeEventIndex = activeEvent ? snapshot.timeline.indexOf(activeEvent) : 0
+  const visibleTimeline = snapshot.timeline.slice(
+    Math.max(0, activeEventIndex - 3),
+    Math.min(snapshot.timeline.length, activeEventIndex + 10),
+  )
+  const current = snapshot.current
+  const plan = snapshot.planning
   const activeWorkflow = workflowIndex(display)
-  const totalGrabs = snapshot?.progress.total_grabs
-  const completedGrabs = snapshot?.progress.completed_grabs
+  const totalGrabs = snapshot.progress.total_grabs
+  const completedGrabs = isDemoReplay
+    ? Math.min(12, Math.floor(videoTime / DEMO_MOVE_DURATION_S))
+    : snapshot.progress.completed_grabs
   const progress =
-    typeof snapshot?.progress.percent === 'number'
+    isDemoReplay
+      ? Math.min(100, (videoTime / DEMO_DURATION_S) * 100)
+      : typeof snapshot.progress.percent === 'number'
       ? snapshot.progress.percent
       : typeof completedGrabs === 'number' && typeof totalGrabs === 'number' && totalGrabs > 0
         ? (completedGrabs / totalGrabs) * 100
         : 0
   const detectionNames = current?.detections ? Object.keys(current.detections) : []
+  const detectionCount = current?.detection_count ?? detectionNames.length
   const sixCube = current?.six_cube
-  const verifiedLayers = sixCube?.verified_layers?.length ?? 0
+  const replayCompletedMoves = isDemoReplay ? Math.min(12, Math.floor(videoTime / DEMO_MOVE_DURATION_S)) : null
+  const replayVerifiedPlacements = replayCompletedMoves ?? snapshot.metrics.verified_placements
+  const verifiedLayers = isDemoReplay
+    ? Math.max(0, replayCompletedMoves! - 6)
+    : sixCube?.verified_layers?.length ?? 0
   const modelLabel =
     display.prediction ??
     (display.model_status === 'not_evaluated'
       ? 'Not evaluated on this physical step'
       : 'Waiting for image-pair evaluation')
-  const sourceLabel = snapshot
-    ? snapshot.run.source === 'physical_robot'
+  const sourceLabel = snapshot.run.source === 'physical_robot'
       ? 'Physical FANUC cell'
       : 'Isaac Sim digital twin'
-    : 'Recorded digital twin demo'
 
   function seekTo(event: TimelineEvent) {
     if (!videoRef.current || !isSyncedRecording) return
@@ -169,7 +186,7 @@ function App() {
         </a>
         <nav className="app-tabs" aria-label="Dashboard views">
           <button type="button" className={activeTab === 'live' ? 'active' : ''} onClick={() => setActiveTab('live')}>Run monitor</button>
-          <button type="button" className={activeTab === 'trials' ? 'active' : ''} onClick={() => setActiveTab('trials')}>Results & review</button>
+          <button type="button" className={activeTab === 'trials' ? 'active' : ''} onClick={() => setActiveTab('trials')}>Machine episodes</button>
         </nav>
         <div className="topbar-meta">
           <span className={`connection-pill ${connection}`}><i />{connectionMessage}</span>
@@ -190,22 +207,22 @@ function App() {
           <div className="run-identity">
             <span>Data source</span>
             <strong>{sourceLabel}</strong>
-            <small>{snapshot ? `Run ${snapshot.run.id}` : 'Start the API for synchronized run data'}</small>
+            <small>Run {snapshot.run.id}</small>
           </div>
         </section>
 
         <section className="run-strip" aria-label="Run overview">
-          <div><span>Run state</span><strong>{compact(snapshot?.run.state, 'Demo only')}</strong></div>
+          <div><span>Run state</span><strong>{isDemoReplay ? 'Replaying' : compact(snapshot.run.state, 'Demo only')}</strong></div>
           <div><span>Current phase</span><strong>{compact(display.phase)}</strong></div>
           <div><span>Safety</span><strong className={current?.action_safe === false ? 'danger' : 'good'}>{current?.action_safe === false ? 'Blocked' : current?.action_safe === true ? 'Targets validated' : 'No fault reported'}</strong></div>
-          <div><span>Updated</span><strong>{dateTime(snapshot?.run.updated_at)}</strong></div>
+          <div><span>Updated</span><strong>{isDemoReplay ? 'Recorded replay' : dateTime(snapshot.run.updated_at)}</strong></div>
         </section>
 
         <section className="workspace" aria-label="Video and live decision data">
           <article className="panel video-panel">
             <div className="panel-heading">
               <div><p className="section-kicker">VIDEO</p><h2>{apiVideo ? 'Run recording' : 'Digital twin recording'}</h2></div>
-              <span className={`source-badge ${isSyncedRecording ? 'synced' : ''}`}>{isSyncedRecording ? 'Telemetry synced' : 'Video reference'}</span>
+              <span className={`source-badge ${isSyncedRecording ? 'synced' : ''}`}>{isDemoReplay ? 'Replay synchronized' : isSyncedRecording ? 'Telemetry synced' : 'Video reference'}</span>
             </div>
             <div className="video-frame">
               <video
@@ -218,7 +235,7 @@ function App() {
                 onError={() => setVideoError(true)}
                 onLoadedData={() => setVideoError(false)}
               />
-              <span className="video-label">{apiVideo ? snapshot?.run.source.replaceAll('_', ' ') : 'recorded twin'}</span>
+              <span className="video-label">{snapshot.run.source.replaceAll('_', ' ')}</span>
             </div>
             {videoError && <p className="notice error">The recording could not be loaded in this browser.</p>}
             {!isSyncedRecording && (
@@ -227,7 +244,7 @@ function App() {
                 folder to synchronize the panel with that run’s real telemetry.
               </p>
             )}
-            {snapshot?.run.source === 'physical_robot' && !apiVideo && (
+            {snapshot.run.source === 'physical_robot' && !apiVideo && (
               <p className="notice">
                 Live policy telemetry is connected. The lab video appears here after the operator
                 recording is downloaded into the same telemetry folder.
@@ -260,11 +277,11 @@ function App() {
               </div>
               <div className="decision-card">
                 <span className="card-icon"><Icon name="shield" /></span>
-                <div><small>Safety gate</small><strong>{snapshot?.run.error ? 'Stopped' : current?.action_safe === false ? 'Motion blocked' : 'Within policy limits'}</strong><p>{compact(current?.reason, snapshot?.run.error ?? 'No controller fault reported')}</p></div>
+                <div><small>Safety gate</small><strong>{snapshot.run.error ? 'Stopped' : current?.action_safe === false ? 'Motion blocked' : 'Within policy limits'}</strong><p>{compact(current?.reason, snapshot.run.error ?? 'No controller fault reported')}</p></div>
               </div>
               <div className="decision-card">
                 <span className="card-icon"><Icon name="camera" /></span>
-                <div><small>Perception</small><strong>{detectionNames.length ? `${detectionNames.length} tracked target${detectionNames.length === 1 ? '' : 's'}` : 'Waiting for detections'}</strong><p>{detectionNames.length ? detectionNames.join(' · ') : compact(current?.camera_names?.join(', '), 'No camera metadata yet')}</p></div>
+                <div><small>Perception</small><strong>{detectionCount ? `${detectionCount} tracked target${detectionCount === 1 ? '' : 's'}` : 'Waiting for detections'}</strong><p>{detectionNames.length ? detectionNames.join(' · ') : compact(current?.camera_names?.join(', '), 'No camera metadata yet')}</p></div>
               </div>
             </div>
           </article>
@@ -286,10 +303,10 @@ function App() {
             <div className="panel-heading"><div><p className="section-kicker">RESULTS</p><h2>Run metrics</h2></div><span className="evidence-label">Recorded values</span></div>
             <dl className="metric-list">
               <div><dt>Completed actions</dt><dd>{numberValue(completedGrabs)}<small>{typeof totalGrabs === 'number' ? ` of ${totalGrabs}` : ''}</small></dd></div>
-              <div><dt>Verified placements</dt><dd>{numberValue(snapshot?.metrics.verified_placements)}</dd></div>
-              <div><dt>Classifier accuracy</dt><dd>{percent(typeof snapshot?.metrics.classifier_accuracy === 'number' ? snapshot.metrics.classifier_accuracy : null)}</dd></div>
-              <div><dt>Policy latency</dt><dd>{numberValue(current?.latency_ms, ' ms')}</dd></div>
-              <div><dt>Placement error</dt><dd>{numberValue(display.placement_error_mm, ' mm')}</dd></div>
+              <div><dt>Verified placements</dt><dd>{numberValue(replayVerifiedPlacements)}</dd></div>
+              <div><dt>Classifier agreement</dt><dd>{percent(typeof snapshot.metrics.classifier_accuracy === 'number' ? snapshot.metrics.classifier_accuracy : null)}</dd></div>
+              <div><dt>Policy latency</dt><dd>{typeof current?.latency_ms === 'number' ? numberValue(current.latency_ms, ' ms') : 'Not exported'}</dd></div>
+              <div><dt>Placement error</dt><dd>{typeof display.placement_error_mm === 'number' ? numberValue(display.placement_error_mm, ' mm') : 'Not exported'}</dd></div>
               <div><dt>Verified tower layers</dt><dd>{sixCube?.enabled ? verifiedLayers : '—'}<small>{sixCube?.move_count ? ` of ${sixCube.move_count}` : ''}</small></dd></div>
             </dl>
             <div className="progress-track" aria-label={`Run progress ${Math.round(progress)} percent`}><span style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} /></div>
@@ -297,10 +314,10 @@ function App() {
         </section>
 
         <section className="panel timeline-panel">
-          <div className="panel-heading"><div><p className="section-kicker">TIMELINE</p><h2>Run events</h2></div><span className="evidence-label">{snapshot?.timeline.length ?? 0} events</span></div>
-          {snapshot?.timeline.length ? (
+          <div className="panel-heading"><div><p className="section-kicker">TIMELINE</p><h2>Run events</h2></div><span className="evidence-label">{snapshot.timeline.length} synchronized steps</span></div>
+          {snapshot.timeline.length ? (
             <div className="timeline-list">
-              {snapshot.timeline.slice(-12).map((event, index) => (
+              {visibleTimeline.map((event, index) => (
                 <button type="button" onClick={() => seekTo(event)} className={activeEvent === event ? 'active' : ''} key={`${event.stage}-${event.grab}-${index}`} disabled={!isSyncedRecording}>
                   <span>{event.start_s.toFixed(1)}s</span><strong>{compact(event.state_machine_step)}</strong><small>{compact(event.prediction, compact(event.selected_action, 'No model score'))}</small><i className={event.grasp_result} />
                 </button>
