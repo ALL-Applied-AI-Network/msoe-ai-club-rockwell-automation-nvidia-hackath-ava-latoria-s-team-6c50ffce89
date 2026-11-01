@@ -88,7 +88,10 @@ function LabRuns({ reviews, onReview, syncStatus }: { reviews: ReviewMap; onRevi
   return <section className="runs-view">
     <div className="video-tabs" role="tablist" aria-label="Run videos"><button type="button" className={videoView === 'episodes' ? 'active' : ''} onClick={() => setVideoView('episodes')}>Physical machine episodes</button><button type="button" className={videoView === 'twin' ? 'active' : ''} onClick={() => setVideoView('twin')}>Digital twin demonstration</button></div>
     {videoView === 'episodes' ? <>
-      <div className="video-library">{PHYSICAL_EPISODES.map((episode) => <article className="video-card" key={episode.src}><div><strong>{episode.title}</strong><span>{episode.camera} · {episode.durationS.toFixed(1)} s</span><b className={`episode-rating ${reviews[episodeId(episode)] === 'GOOD' ? 'good' : reviews[episodeId(episode)] === 'BAD' ? 'bad' : ''}`}>{ratingText(reviews[episodeId(episode)])}</b></div><video controls preload="metadata" playsInline src={episode.src} /><EpisodeReview episode={episode} review={reviews[episodeId(episode)]} graspReview={reviews[evidenceId('grasp', episode)]} stackReview={reviews[evidenceId('stack', episode)]} onReview={onReview} /></article>)}</div>
+      <div className="video-library">{PHYSICAL_EPISODES.map((episode) => {
+        const episodeReview = reviews[episodeId(episode)] ?? episode.recordedRating
+        return <article className="video-card" key={episode.src}><div><strong>{episode.title}</strong><span>{episode.camera} · {episode.durationS.toFixed(1)} s</span><b className={`episode-rating ${episodeReview === 'GOOD' ? 'good' : 'bad'}`}>{ratingText(episodeReview)}</b></div><video controls preload="metadata" playsInline src={episode.src} /><EpisodeReview episode={episode} review={episodeReview} graspReview={reviews[evidenceId('grasp', episode)]} stackReview={reviews[evidenceId('stack', episode)]} onReview={onReview} /></article>
+      })}</div>
     </> : <div className="video-library single"><article className="video-card"><div><strong>{TWIN_VIDEO.title}</strong><span>{TWIN_VIDEO.camera} · synchronized on Run monitor</span></div><video controls preload="metadata" playsInline src={TWIN_VIDEO.src} /></article></div>}
     <p className="feedback-status">{syncStatus}</p>
   </section>

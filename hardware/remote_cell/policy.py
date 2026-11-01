@@ -55,13 +55,14 @@ SIX_CUBE_INSTRUCTION = (
     "calibration, grasp verification, or placement verification fails, stop "
     "safely rather than guessing."
 )
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+ALLOWED_CUBE_COLORS = ("red", "blue", "yellow")
 TASK_SCHEMA = {
     "type": "object",
     "properties": {
         "action": {"type": "string", "enum": ["stack"]},
-        "source_color": {"type": "string", "enum": ["red", "blue"]},
-        "destination_color": {"type": "string", "enum": ["red", "blue"]},
+        "source_color": {"type": "string", "enum": list(ALLOWED_CUBE_COLORS)},
+        "destination_color": {"type": "string", "enum": list(ALLOWED_CUBE_COLORS)},
         "shape": {"type": "string", "enum": ["cube"]},
         "size_mm": {"type": "integer", "enum": [10]},
         "requires_clarification": {"type": "boolean"},
@@ -143,7 +144,10 @@ def _validated_task_plan(raw: dict, *, instruction: str, planner: str) -> dict:
         raise InstructionError("instruction plan has unexpected or missing fields")
     if raw["action"] != "stack" or raw["shape"] != "cube":
         raise InstructionError("only cube stacking is currently allowlisted")
-    if raw["source_color"] not in FIXED_TARGET_ENV or raw["destination_color"] not in FIXED_TARGET_ENV:
+    if (
+        raw["source_color"] not in ALLOWED_CUBE_COLORS
+        or raw["destination_color"] not in ALLOWED_CUBE_COLORS
+    ):
         raise InstructionError("instruction uses an unsupported cube color")
     if raw["source_color"] == raw["destination_color"]:
         raise InstructionError("source and destination cubes must be different")

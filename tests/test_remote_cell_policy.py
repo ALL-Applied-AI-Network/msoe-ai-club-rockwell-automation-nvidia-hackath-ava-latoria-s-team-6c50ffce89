@@ -77,6 +77,23 @@ class TestRemoteCellPolicy(unittest.TestCase):
             else:
                 os.environ["GEMINI_API_KEY"] = old_key
 
+    def test_gemini_plan_accepts_yellow_as_a_detectable_preview_color(self):
+        plan = POLICY._validated_task_plan(
+            {
+                "action": "stack",
+                "source_color": "red",
+                "destination_color": "yellow",
+                "shape": "cube",
+                "size_mm": 10,
+                "requires_clarification": False,
+            },
+            instruction="Place the red 10 mm cube on the yellow 10 mm cube.",
+            planner="gemini",
+        )
+
+        self.assertEqual(plan["source_color"], "red")
+        self.assertEqual(plan["destination_color"], "yellow")
+
     def test_gemini_six_cube_plan_selects_only_allowlisted_skill(self):
         class FakeResponse:
             def __enter__(self):

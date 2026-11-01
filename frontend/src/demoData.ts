@@ -6,6 +6,7 @@ export interface PhysicalEpisode {
   camera: string
   src: string
   durationS: number
+  recordedRating: 'GOOD' | 'BAD'
   thumbnail: string
   graspThumbnail: string
   stackThumbnail: string
@@ -25,6 +26,7 @@ export const PHYSICAL_EPISODES: PhysicalEpisode[] = PHYSICAL_EPISODE_DURATIONS.s
     camera: 'Table camera',
     src: `/csi_episode_${index}_table.mp4`,
     durationS,
+    recordedRating: 'GOOD',
     thumbnail: `/episode_thumbnails/csi_episode_${index}_table.jpg`,
     graspThumbnail: `/episode_evidence/episode_${index}_grasp_side.jpg`,
     stackThumbnail: `/episode_evidence/episode_${index}_stack_side.jpg`,
