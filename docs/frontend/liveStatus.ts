@@ -84,6 +84,22 @@ export interface DashboardSnapshot {
     cycle_time_s: number | null;
     placement_error_mm: number | null;
     overall_success_rate: number | null;
+    model_status: string | null;
+    model_reason: string | null;
+  };
+  planning: {
+    status: "ready" | "waiting" | "blocked";
+    planner: "deterministic" | "gemini" | null;
+    instruction: string | null;
+    action: string | null;
+    source_color: string | null;
+    destination_color: string | null;
+    shape: string | null;
+    size_mm: number | null;
+    execution_skill: string | null;
+    tower_order: string[] | null;
+    requires_clarification: boolean;
+    summary: string | null;
   };
   current: GraspEvent | Record<string, unknown> | null;
   progress: Record<string, number | null>;
@@ -103,6 +119,8 @@ export interface DashboardSnapshot {
     cycle_time_s: number | null;
     placement_error_mm: number | null;
     overall_success_rate: number | null;
+    model_status: string | null;
+    model_reason: string | null;
   }>;
   timeline_basis: "cumulative_cycle_time";
   media: {

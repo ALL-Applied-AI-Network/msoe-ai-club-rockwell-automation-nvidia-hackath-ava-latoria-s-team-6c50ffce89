@@ -56,15 +56,30 @@ Endpoints:
 - `GET /api/events?stage=all|sort|stack`
 - `GET /api/metrics`
 - `GET /api/artifacts`
+- `GET /api/sessions` — safe summaries for adjacent simulator and physical
+  sessions, without exposing workspace paths
+- `GET /api/feedback` — human-review labels already saved for this run
+- `POST /api/feedback` — append a GOOD/BAD grasp or stack label to the run's
+  offline retraining evidence queue; this never changes the live controller
+- `POST /api/plan` — produce a dry-run task plan from an instruction using the
+  allowlisted deterministic/Gemini planning boundary; this never executes it
 - `GET /api/video` — automatically serves the preferred MP4/WebM in the run
   folder and supports browser byte-range requests
 - `GET /api/latest-frame?stage=sort|stack&camera=main|side`
 - `GET /artifacts/<run-relative-path>`
 - `GET /media/<run-relative-video-or-image>`
 
-The bridge is read-only, blocks path traversal, supports video byte ranges, and
-never starts, stops, or commands the robot. JSON responses use `no-store` so a
+The bridge blocks path traversal, supports video byte ranges, and never starts,
+stops, or commands the robot. Its only write is an append-only human-review
+JSONL record inside the selected run. JSON responses use `no-store` so a
 frontend can poll without seeing stale status.
+
+`POST /api/feedback` and `POST /api/plan` require an exact allowed browser
+origin and accept small validated JSON bodies. Feedback is evidence for an
+offline retraining workflow, not an automatic model update. A person must match
+the review to the source before/after frames, curate the sample, preserve the
+held-out evaluation split, retrain, and re-run the release gate before a new
+checkpoint can be deployed.
 
 For Ana's dashboard, poll `/api/dashboard` instead of assembling the cards from
 several files. The response's `display` object maps directly to the current UI:
