@@ -135,11 +135,12 @@ function App() {
     [isSyncedRecording, snapshot, videoTime],
   )
   const display = activeEvent ?? snapshot.display ?? EMPTY_DISPLAY
-  const activeEventIndex = activeEvent ? snapshot.timeline.indexOf(activeEvent) : 0
-  const visibleTimeline = snapshot.timeline.slice(
-    Math.max(0, activeEventIndex - 3),
-    Math.min(snapshot.timeline.length, activeEventIndex + 10),
-  )
+  const eventLog = useMemo(() => {
+    const events = isSyncedRecording
+      ? snapshot.timeline.filter((event) => event.start_s <= videoTime + 0.05)
+      : snapshot.timeline
+    return [...events].reverse()
+  }, [isSyncedRecording, snapshot.timeline, videoTime])
   const current = snapshot.current
   const plan = snapshot.planning
   const activeWorkflow = workflowIndex(display)
@@ -305,12 +306,15 @@ function App() {
         </section>
 
         <section className="panel timeline-panel">
-          <div className="panel-heading"><div><p className="section-kicker">TIMELINE</p><h2>Run events</h2></div><span className="evidence-label">{snapshot.timeline.length} synchronized steps</span></div>
+          <div className="panel-heading"><div><p className="section-kicker">ACTIVITY LOG</p><h2>Run events</h2></div><span className="evidence-label">{eventLog.length} of {snapshot.timeline.length} events</span></div>
           {snapshot.timeline.length ? (
-            <div className="timeline-list">
-              {visibleTimeline.map((event, index) => (
-                <button type="button" onClick={() => seekTo(event)} className={activeEvent === event ? 'active' : ''} key={`${event.stage}-${event.grab}-${index}`} disabled={!isSyncedRecording}>
-                  <span>{event.start_s.toFixed(1)}s</span><strong>{compact(event.state_machine_step)}</strong><small>{compact(event.prediction, compact(event.selected_action, 'No model score'))}</small><i className={event.grasp_result} />
+            <div className="timeline-list" aria-live="polite" aria-label="Run event activity log, newest first">
+              {eventLog.map((event) => (
+                <button type="button" onClick={() => seekTo(event)} className={activeEvent === event ? 'active' : ''} key={`${event.stage}-${event.grab}-${event.start_s}`} disabled={!isSyncedRecording}>
+                  <span>{event.start_s.toFixed(1)}s</span>
+                  <strong>{compact(event.state_machine_step)}</strong>
+                  <small>{compact(event.prediction, compact(event.selected_action, 'No model score'))}</small>
+                  <i className={event.grasp_result} aria-hidden="true" />
                 </button>
               ))}
             </div>
