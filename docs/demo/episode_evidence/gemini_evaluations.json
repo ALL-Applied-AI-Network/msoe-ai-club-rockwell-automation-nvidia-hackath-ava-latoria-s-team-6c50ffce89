@@ -1,0 +1,139 @@
+{
+  "model": "gemini-3.5-flash-lite",
+  "generated_at": "2026-11-01T21:10:26.185707+00:00",
+  "boundary": "Advisory image review only; human validation remains authoritative.",
+  "episodes": {
+    "1": {
+      "grasp": {
+        "verdict": "bad",
+        "confidence": 0.95,
+        "reason": "The robot gripper is empty and does not hold a cube."
+      },
+      "stack": {
+        "verdict": "good",
+        "confidence": 0.95,
+        "reason": "The red cube is visibly and stably placed on top of the blue cube."
+      }
+    },
+    "2": {
+      "grasp": {
+        "verdict": "good",
+        "confidence": 0.95,
+        "reason": "The robot gripper is visibly holding a red cube after pickup."
+      },
+      "stack": {
+        "verdict": "good",
+        "confidence": 0.95,
+        "reason": "The red cube is visibly and stably placed on top of the blue cube."
+      }
+    },
+    "3": {
+      "grasp": {
+        "verdict": "bad",
+        "confidence": 1.0,
+        "reason": "The robot gripper is empty while the cube remains sitting on the table."
+      },
+      "stack": {
+        "verdict": "good",
+        "confidence": 0.95,
+        "reason": "The red cube is visibly and stably placed on top of the blue cube."
+      }
+    },
+    "4": {
+      "grasp": {
+        "verdict": "good",
+        "confidence": 0.95,
+        "reason": "The robot gripper clearly holds a cube at the end effector."
+      },
+      "stack": {
+        "verdict": "good",
+        "confidence": 0.95,
+        "reason": "The red cube is visibly and stably placed on top of the blue cube."
+      }
+    },
+    "5": {
+      "grasp": {
+        "verdict": "bad",
+        "confidence": 0.95,
+        "reason": "The robot gripper is empty, and the cube remains sitting on the surface below."
+      },
+      "stack": {
+        "verdict": "good",
+        "confidence": 1.0,
+        "reason": "The red cube is visibly and stably placed on top of the blue cube."
+      }
+    },
+    "6": {
+      "grasp": {
+        "verdict": "bad",
+        "confidence": 1.0,
+        "reason": "The robot gripper is empty and the cube remains on the table."
+      },
+      "stack": {
+        "verdict": "good",
+        "confidence": 0.95,
+        "reason": "The red cube is visibly and stably stacked on the blue cube."
+      }
+    },
+    "7": {
+      "grasp": {
+        "verdict": "bad",
+        "confidence": 0.95,
+        "reason": "The robot gripper is empty and does not hold a cube."
+      },
+      "stack": {
+        "verdict": "good",
+        "confidence": 1.0,
+        "reason": "The red cube is visibly and stably placed on top of the blue cube."
+      }
+    },
+    "8": {
+      "grasp": {
+        "verdict": "bad",
+        "confidence": 0.99,
+        "reason": "The robot gripper is empty and does not hold any cube."
+      },
+      "stack": {
+        "verdict": "good",
+        "confidence": 0.95,
+        "reason": "The red cube is clearly and stably placed on top of the blue cube."
+      }
+    },
+    "9": {
+      "grasp": {
+        "verdict": "bad",
+        "confidence": 1.0,
+        "reason": "The robot gripper is empty and does not hold any cube."
+      },
+      "stack": {
+        "verdict": "good",
+        "confidence": 0.95,
+        "reason": "The red cube is visibly and stably placed on top of the blue cube."
+      }
+    },
+    "10": {
+      "grasp": {
+        "verdict": "bad",
+        "confidence": 0.99,
+        "reason": "The robot gripper is empty and does not hold a cube."
+      },
+      "stack": {
+        "verdict": "good",
+        "confidence": 0.95,
+        "reason": "The red cube is visibly stacked on top of the blue cube."
+      }
+    },
+    "11": {
+      "grasp": {
+        "verdict": "bad",
+        "confidence": 1.0,
+        "reason": "The robot gripper is empty while the cube remains on the table."
+      },
+      "stack": {
+        "verdict": "good",
+        "confidence": 0.95,
+        "reason": "The red cube is visibly and stably placed on top of the blue cube."
+      }
+    }
+  }
+}

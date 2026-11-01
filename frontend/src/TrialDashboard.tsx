@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   previewInstruction,
   submitFeedback,
@@ -11,6 +11,8 @@ import { PHYSICAL_EPISODES, type PhysicalEpisode } from './demoData'
 type DashboardView = 'metrics' | 'grasps' | 'stacks' | 'runs' | 'instructions'
 type ReviewLabel = 'GOOD' | 'BAD'
 type ReviewMap = Record<string, ReviewLabel>
+type GeminiAssessment = { verdict: 'good' | 'bad' | 'uncertain'; confidence: number; reason: string }
+type GeminiEvidence = { model: string; boundary: string; episodes: Record<string, { grasp: GeminiAssessment; stack: GeminiAssessment }> }
 
 const EXAMPLE_INSTRUCTIONS = [
   'Place the red 10 mm cube on top of the blue 10 mm cube.',
@@ -34,11 +36,17 @@ function ratingText(review: ReviewLabel | undefined) {
   return review === 'GOOD' ? 'Successful' : review === 'BAD' ? 'Needs work' : 'Not rated'
 }
 
-function EpisodeReview({ episode, review, graspReview, stackReview, onReview }: {
+function GeminiReview({ assessment }: { assessment: GeminiAssessment | undefined }) {
+  if (!assessment) return <div className="gemini-assessment pending"><span>Gemini image review</span><strong>Loading</strong></div>
+  return <div className={`gemini-assessment ${assessment.verdict}`}><span>Gemini image review · {Math.round(assessment.confidence * 100)}%</span><strong>{assessment.verdict}</strong><small>{assessment.reason}</small></div>
+}
+
+function EpisodeReview({ episode, review, graspReview, stackReview, geminiReview, onReview }: {
   episode: PhysicalEpisode
   review: ReviewLabel | undefined
   graspReview: ReviewLabel | undefined
   stackReview: ReviewLabel | undefined
+  geminiReview: { grasp: GeminiAssessment; stack: GeminiAssessment } | undefined
   onReview: (kind: 'episode' | 'grasp' | 'stack', episode: PhysicalEpisode, label: ReviewLabel) => void
 }) {
   return <div className="episode-review-panel">
@@ -52,13 +60,14 @@ function EpisodeReview({ episode, review, graspReview, stackReview, onReview }: 
       <div className="episode-explanation">
         <p><strong>Overall:</strong> {ratingText(review)}</p>
         <p><strong>Grasp:</strong> {ratingText(graspReview)} · <strong>Stack:</strong> {ratingText(stackReview)}</p>
+        <p><strong>Gemini:</strong> grasp {geminiReview?.grasp.verdict ?? 'loading'} · stack {geminiReview?.stack.verdict ?? 'loading'}</p>
         <p>{review === 'GOOD' ? 'The recorded episode result is successful. Use the grasp and stack pages for separate human validation.' : 'This recording is incomplete or needs follow-up; do not count it as a complete manipulation cycle.'}</p>
       </div>
     </details>
   </div>
 }
 
-function PhysicalEvidenceFeedback({ kind, reviews, onReview, syncStatus }: { kind: 'grasp' | 'stack'; reviews: ReviewMap; onReview: (kind: 'grasp' | 'stack', episode: PhysicalEpisode, label: ReviewLabel) => void; syncStatus: string }) {
+function PhysicalEvidenceFeedback({ kind, reviews, evaluations, onReview, syncStatus }: { kind: 'grasp' | 'stack'; reviews: ReviewMap; evaluations: GeminiEvidence | null; onReview: (kind: 'grasp' | 'stack', episode: PhysicalEpisode, label: ReviewLabel) => void; syncStatus: string }) {
   const reviewed = PHYSICAL_EPISODES.filter((episode) => reviews[evidenceId(kind, episode)])
   const pending = PHYSICAL_EPISODES.filter((episode) => !reviews[evidenceId(kind, episode)])
   const denied = PHYSICAL_EPISODES.filter((episode) => reviews[evidenceId(kind, episode)] === 'BAD')
@@ -69,6 +78,7 @@ function PhysicalEvidenceFeedback({ kind, reviews, onReview, syncStatus }: { kin
     return <article className={resolved ? 'resolved-review' : ''} key={episode.id}>
       <img src={kind === 'grasp' ? episode.graspThumbnail : episode.stackThumbnail} alt={`${episode.title} ${kind} from the side camera`} />
       <div className="physical-feedback-copy"><span>CSI side camera</span><strong>{episode.title} · {kind}</strong><small>{kind === 'grasp' ? 'Pickup checkpoint' : 'Placement checkpoint'} from the physical-machine recording</small></div>
+      <GeminiReview assessment={evaluations?.episodes[String(episode.id)]?.[kind]} />
       <div className="review-state"><span>Human result</span><strong className={review === 'GOOD' ? 'good' : review === 'BAD' ? 'bad' : ''}>{review === 'GOOD' ? 'Approved' : review === 'BAD' ? 'Denied' : 'Pending review'}</strong></div>
       {!resolved && <div className="review-actions"><button type="button" className="good" onClick={() => onReview(kind, episode, 'GOOD')}>Approve</button><button type="button" className="bad" onClick={() => onReview(kind, episode, 'BAD')}>Deny</button></div>}
     </article>
@@ -83,14 +93,14 @@ function PhysicalEvidenceFeedback({ kind, reviews, onReview, syncStatus }: { kin
   </section>
 }
 
-function LabRuns({ reviews, onReview, syncStatus }: { reviews: ReviewMap; onReview: (kind: 'episode' | 'grasp' | 'stack', episode: PhysicalEpisode, label: ReviewLabel) => void; syncStatus: string }) {
+function LabRuns({ reviews, evaluations, onReview, syncStatus }: { reviews: ReviewMap; evaluations: GeminiEvidence | null; onReview: (kind: 'episode' | 'grasp' | 'stack', episode: PhysicalEpisode, label: ReviewLabel) => void; syncStatus: string }) {
   const [videoView, setVideoView] = useState<'episodes' | 'twin'>('episodes')
   return <section className="runs-view">
     <div className="video-tabs" role="tablist" aria-label="Run videos"><button type="button" className={videoView === 'episodes' ? 'active' : ''} onClick={() => setVideoView('episodes')}>Physical machine episodes</button><button type="button" className={videoView === 'twin' ? 'active' : ''} onClick={() => setVideoView('twin')}>Digital twin demonstration</button></div>
     {videoView === 'episodes' ? <>
       <div className="video-library">{PHYSICAL_EPISODES.map((episode) => {
         const episodeReview = reviews[episodeId(episode)] ?? episode.recordedRating
-        return <article className="video-card" key={episode.src}><div><strong>{episode.title}</strong><span>{episode.camera} · {episode.durationS.toFixed(1)} s</span><b className={`episode-rating ${episodeReview === 'GOOD' ? 'good' : 'bad'}`}>{ratingText(episodeReview)}</b></div><div className="episode-card-summary"><strong>{episode.outcome}</strong><p>{episode.description}</p></div><video controls preload="metadata" playsInline src={episode.src} /><EpisodeReview episode={episode} review={episodeReview} graspReview={reviews[evidenceId('grasp', episode)]} stackReview={reviews[evidenceId('stack', episode)]} onReview={onReview} /></article>
+        return <article className="video-card" key={episode.src}><div><strong>{episode.title}</strong><span>{episode.camera} · {episode.durationS.toFixed(1)} s</span><b className={`episode-rating ${episodeReview === 'GOOD' ? 'good' : 'bad'}`}>{ratingText(episodeReview)}</b></div><div className="episode-card-summary"><strong>{episode.outcome}</strong><p>{episode.description}</p></div><video controls preload="metadata" playsInline src={episode.src} /><EpisodeReview episode={episode} review={episodeReview} graspReview={reviews[evidenceId('grasp', episode)]} stackReview={reviews[evidenceId('stack', episode)]} geminiReview={evaluations?.episodes[String(episode.id)]} onReview={onReview} /></article>
       })}</div>
     </> : <div className="video-library single"><article className="video-card"><div><strong>{TWIN_VIDEO.title}</strong><span>{TWIN_VIDEO.camera} · synchronized on Run monitor</span></div><video controls preload="metadata" playsInline src={TWIN_VIDEO.src} /></article></div>}
     <p className="feedback-status">{syncStatus}</p>
@@ -126,8 +136,10 @@ function InstructionStudio({ snapshot }: { snapshot: DashboardSnapshot | null })
 export default function TrialDashboard({ snapshot }: { snapshot: DashboardSnapshot | null }) {
   const [view, setView] = useState<DashboardView>('runs'); const [syncStatus, setSyncStatus] = useState('Reviews reset on page reload and are sent to the feedback API when it is connected.')
   const [reviews, setReviews] = useState<ReviewMap>({})
+  const [evaluations, setEvaluations] = useState<GeminiEvidence | null>(null)
+  useEffect(() => { fetch('/episode_evidence/gemini_evaluations.json').then((response) => response.ok ? response.json() : Promise.reject()).then((value: GeminiEvidence) => setEvaluations(value)).catch(() => setEvaluations(null)) }, [])
   function saveReview(id: string, label: ReviewLabel) { setReviews((current) => ({ ...current, [id]: label })) }
   async function sendReview(payload: FeedbackRequest) { try { await submitFeedback(payload); setSyncStatus('Review saved to dashboard_feedback.jsonl for supervised offline improvement.') } catch { setSyncStatus('Review saved for this demo session. The feedback API is currently unavailable.') } }
   async function reviewPhysical(kind: 'episode' | 'grasp' | 'stack', episode: PhysicalEpisode, label: ReviewLabel) { const id = kind === 'episode' ? episodeId(episode) : evidenceId(kind, episode); saveReview(id, label); await sendReview({ run_id: 'csi-remote-trial', event_id: id, kind: kind === 'grasp' ? 'grasp' : 'stack', label, stage: `physical_${kind}`, grab: episode.id, model_prediction: null, model_confidence: null }) }
-  return <main className="trials-page"><section className="trials-hero"><div><p className="eyebrow">MACHINE EVIDENCE & FEEDBACK</p><h1>Episodes, metrics, and review</h1><p>Watch physical trials, validate outcomes, inspect digital-twin decisions, and preview new instructions.</p></div></section><div className="operations-layout"><aside className="operations-nav" aria-label="Evidence dashboard"><button className={view === 'runs' ? 'active' : ''} onClick={() => setView('runs')}><strong>Episode videos</strong></button><button className={view === 'grasps' ? 'active' : ''} onClick={() => setView('grasps')}><strong>Grasp feedback</strong></button><button className={view === 'stacks' ? 'active' : ''} onClick={() => setView('stacks')}><strong>Stack feedback</strong></button><button className={view === 'metrics' ? 'active' : ''} onClick={() => setView('metrics')}><strong>Machine metrics</strong></button><button className={view === 'instructions' ? 'active' : ''} onClick={() => setView('instructions')}><strong>Instructions</strong></button><div className="review-alert"><b>{Object.keys(reviews).length}</b><span>saved reviews</span></div></aside><div className="operations-content">{view === 'runs' && <LabRuns reviews={reviews} onReview={reviewPhysical} syncStatus={syncStatus} />}{view === 'metrics' && <MachineMetrics reviews={reviews} openEpisodes={() => setView('runs')} />}{view === 'grasps' && <PhysicalEvidenceFeedback kind="grasp" reviews={reviews} onReview={reviewPhysical} syncStatus={syncStatus} />}{view === 'stacks' && <PhysicalEvidenceFeedback kind="stack" reviews={reviews} onReview={reviewPhysical} syncStatus={syncStatus} />}{view === 'instructions' && <InstructionStudio snapshot={snapshot} />}</div></div></main>
+  return <main className="trials-page"><section className="trials-hero"><div><p className="eyebrow">MACHINE EVIDENCE & FEEDBACK</p><h1>Episodes, metrics, and review</h1><p>Watch physical trials, validate outcomes, inspect digital-twin decisions, and preview new instructions.</p></div></section><div className="operations-layout"><aside className="operations-nav" aria-label="Evidence dashboard"><button className={view === 'runs' ? 'active' : ''} onClick={() => setView('runs')}><strong>Episode videos</strong></button><button className={view === 'grasps' ? 'active' : ''} onClick={() => setView('grasps')}><strong>Grasp feedback</strong></button><button className={view === 'stacks' ? 'active' : ''} onClick={() => setView('stacks')}><strong>Stack feedback</strong></button><button className={view === 'metrics' ? 'active' : ''} onClick={() => setView('metrics')}><strong>Machine metrics</strong></button><button className={view === 'instructions' ? 'active' : ''} onClick={() => setView('instructions')}><strong>Instructions</strong></button><div className="review-alert"><b>{Object.keys(reviews).length}</b><span>saved reviews</span></div></aside><div className="operations-content">{view === 'runs' && <LabRuns reviews={reviews} evaluations={evaluations} onReview={reviewPhysical} syncStatus={syncStatus} />}{view === 'metrics' && <MachineMetrics reviews={reviews} openEpisodes={() => setView('runs')} />}{view === 'grasps' && <PhysicalEvidenceFeedback kind="grasp" reviews={reviews} evaluations={evaluations} onReview={reviewPhysical} syncStatus={syncStatus} />}{view === 'stacks' && <PhysicalEvidenceFeedback kind="stack" reviews={reviews} evaluations={evaluations} onReview={reviewPhysical} syncStatus={syncStatus} />}{view === 'instructions' && <InstructionStudio snapshot={snapshot} />}</div></div></main>
 }

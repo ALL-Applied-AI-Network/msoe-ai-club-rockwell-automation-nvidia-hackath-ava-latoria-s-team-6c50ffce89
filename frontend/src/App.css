@@ -267,6 +267,13 @@ footer { display: flex; justify-content: space-between; gap: 18px; padding: 20px
 .episode-explanation { display: grid; gap: 5px; padding: 0 10px 10px; border-top: 1px solid var(--line); }
 .episode-explanation p { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .episode-explanation strong { color: var(--text); font-size: inherit; }
+.gemini-assessment { display: grid; gap: 3px; min-width: 190px; max-width: 260px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); }
+.gemini-assessment span { color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.gemini-assessment strong { font-size: 11px; text-transform: capitalize; }
+.gemini-assessment small { color: var(--muted); font-size: 9px; line-height: 1.35; }
+.gemini-assessment.good strong { color: var(--green); }
+.gemini-assessment.bad strong { color: var(--red); }
+.gemini-assessment.uncertain strong, .gemini-assessment.pending strong { color: var(--amber); }
 
 .metrics-scope { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 14px; padding: 18px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
 .metrics-scope h2 { margin: 0; font-size: 22px; }
