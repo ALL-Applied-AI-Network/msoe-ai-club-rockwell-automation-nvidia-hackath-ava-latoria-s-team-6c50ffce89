@@ -51,8 +51,10 @@ function EpisodeReview({ episode, review, graspReview, stackReview, onReview }: 
       <summary>How this episode did</summary>
       <div className="episode-explanation">
         <p><strong>Overall:</strong> {ratingText(review)}</p>
+        <p><strong>Recorded outcome:</strong> {episode.outcome}</p>
+        <p>{episode.description}</p>
         <p><strong>Grasp:</strong> {ratingText(graspReview)} · <strong>Stack:</strong> {ratingText(stackReview)}</p>
-        <p>{review === 'GOOD' ? 'The full attempt was approved after reviewing the physical-machine recording.' : review === 'BAD' ? 'The attempt needs follow-up. Use the grasp and stack feedback pages to identify the failed step.' : 'Review the full recording, then use the dedicated side-camera grasp and stack images before assigning a rating.'}</p>
+        <p>{review === 'GOOD' ? 'The recorded episode result is successful. Use the grasp and stack pages for separate human validation.' : 'This recording is incomplete or needs follow-up; do not count it as a complete manipulation cycle.'}</p>
       </div>
     </details>
   </div>

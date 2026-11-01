@@ -7,6 +7,8 @@ export interface PhysicalEpisode {
   src: string
   durationS: number
   recordedRating: 'GOOD' | 'BAD'
+  description: string
+  outcome: string
   thumbnail: string
   graspThumbnail: string
   stackThumbnail: string
@@ -16,17 +18,32 @@ const PHYSICAL_EPISODE_DURATIONS = [
   16.8, 23.3, 28.9, 24.2, 30.2, 25.1, 22.2, 25.6, 6.6, 24.7, 21.7, 32.0,
 ]
 
+const PHYSICAL_EPISODE_OUTCOMES: Record<number, Pick<PhysicalEpisode, 'recordedRating' | 'description' | 'outcome'>> = {
+  1: { recordedRating: 'GOOD', description: 'A complete nominal cycle: approach, red-cube pickup, transfer to the blue cube, release, and retreat.', outcome: 'Completed red-on-blue stack in 23.3 seconds.' },
+  2: { recordedRating: 'GOOD', description: 'The arm completed the full task with a longer approach and transfer than Episode 1.', outcome: 'Completed red-on-blue stack in 28.9 seconds.' },
+  3: { recordedRating: 'GOOD', description: 'A steady full cycle with the final side-camera view confirming the two-cube tower remained upright.', outcome: 'Completed red-on-blue stack in 24.2 seconds.' },
+  4: { recordedRating: 'GOOD', description: 'The pickup and placement succeeded despite this being one of the longer recorded motion sequences.', outcome: 'Completed red-on-blue stack in 30.2 seconds.' },
+  5: { recordedRating: 'GOOD', description: 'The robot completed the commanded pickup, carry, placement, release, and retreat sequence.', outcome: 'Completed red-on-blue stack in 25.1 seconds.' },
+  6: { recordedRating: 'GOOD', description: 'A fast complete cycle with a stable final stack visible in the side-camera recording.', outcome: 'Completed red-on-blue stack in 22.2 seconds.' },
+  7: { recordedRating: 'GOOD', description: 'The full manipulation sequence completed and left the red cube supported on the blue cube.', outcome: 'Completed red-on-blue stack in 25.6 seconds.' },
+  8: { recordedRating: 'BAD', description: 'This is a short partial recording. The stacked cubes are visible, but the clip does not contain enough of the motion cycle to validate the grasp and transfer.', outcome: 'Partial evidence only; full-cycle rating unavailable.' },
+  9: { recordedRating: 'GOOD', description: 'The episode shows a completed pickup and placement with an upright red-on-blue result.', outcome: 'Completed red-on-blue stack in 24.7 seconds.' },
+  10: { recordedRating: 'GOOD', description: 'The fastest complete recorded cycle, ending with the target stack upright after retreat.', outcome: 'Completed red-on-blue stack in 21.7 seconds.' },
+  11: { recordedRating: 'GOOD', description: 'The longest complete trial still finished the commanded stack and left the tower upright.', outcome: 'Completed red-on-blue stack in 32.0 seconds.' },
+}
+
 // Episode 0 used the wrong part setup, so it is intentionally excluded from
 // the evidence gallery and every calculated physical-machine metric.
 export const PHYSICAL_EPISODES: PhysicalEpisode[] = PHYSICAL_EPISODE_DURATIONS.slice(1).map((durationS, offset) => {
   const index = offset + 1
+  const result = PHYSICAL_EPISODE_OUTCOMES[index]
   return {
     id: index,
     title: `Episode ${index}`,
     camera: 'Table camera',
     src: `/csi_episode_${index}_table.mp4`,
     durationS,
-    recordedRating: 'GOOD',
+    ...result,
     thumbnail: `/episode_thumbnails/csi_episode_${index}_table.jpg`,
     graspThumbnail: `/episode_evidence/episode_${index}_grasp_side.jpg`,
     stackThumbnail: `/episode_evidence/episode_${index}_stack_side.jpg`,
