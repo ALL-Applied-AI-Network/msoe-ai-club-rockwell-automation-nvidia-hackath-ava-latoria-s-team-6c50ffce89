@@ -41,8 +41,13 @@ function GeminiEpisodeReview({ episode, review }: { episode: PhysicalEpisode; re
   const bothClear = review.grasp.verdict === 'good' && review.stack.verdict === 'good'
   const finalStackClear = review.stack.verdict === 'good'
   const verdict = bothClear ? 'Good episode evidence' : finalStackClear ? 'Good stack · limited grasp evidence' : 'Needs human review'
+  const explanation = bothClear
+    ? `Gemini rates this episode evidence as good because both selected checkpoints visually confirm the manipulation. ${review.stack.reason}`
+    : finalStackClear
+      ? `Gemini rates the final stacking result as good because the completed tower is clearly visible. However, the grasp evidence is limited: ${review.grasp.reason}`
+      : `Gemini rates this episode as needing human review because the selected evidence does not confirm a successful final result. ${review.stack.reason}`
   return <div className={`gemini-episode-review ${bothClear ? 'good' : finalStackClear ? 'uncertain' : 'bad'}`}>
-    <div><span>Gemini episode review</span><strong>{verdict}</strong><p>{bothClear ? 'Both selected checkpoints clearly support the completed manipulation.' : finalStackClear ? 'The final stack is clear, but the selected grasp frame does not prove the cube was held.' : 'The selected evidence does not clearly confirm a successful final result.'}</p></div>
+    <div><span>Gemini episode review</span><strong>{verdict}</strong><p>{explanation}</p></div>
     <dl><div><dt>Grasp image</dt><dd>{review.grasp.verdict} · {Math.round(review.grasp.confidence * 100)}%</dd></div><div><dt>Stack image</dt><dd>{review.stack.verdict} · {Math.round(review.stack.confidence * 100)}%</dd></div><div><dt>Cycle time</dt><dd>{episode.durationS.toFixed(1)} s</dd></div></dl>
   </div>
 }
