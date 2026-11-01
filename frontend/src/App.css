@@ -62,13 +62,12 @@
 .read-only svg { width: 14px; color: var(--blue); }
 
 main { width: min(1380px, calc(100% - 48px)); margin: 0 auto; padding: 36px 0 48px; }
-.hero { display: grid; grid-template-columns: minmax(0, 1fr) 290px; align-items: end; gap: 36px; margin-bottom: 24px; }
+.hero { margin-bottom: 24px; }
 .eyebrow, .section-kicker { margin: 0 0 7px; color: var(--blue); font-size: 11px; font-weight: 750; letter-spacing: .08em; }
 .hero h1, .trials-hero h1 { margin: 0; font-size: clamp(30px, 4vw, 46px); line-height: 1.08; letter-spacing: -.025em; }
 .hero-copy { max-width: 720px; margin: 12px 0 0; color: var(--muted); font-size: 15px; line-height: 1.55; }
-.run-identity, .trial-count { display: grid; gap: 5px; padding: 16px; border: 1px solid var(--line); border-left: 4px solid var(--blue); border-radius: 8px; background: var(--surface); }
-.run-identity span, .run-identity small, .trial-count small { color: var(--muted); font-size: 11px; }
-.run-identity strong { font-size: 15px; }
+.trial-count { display: grid; gap: 5px; padding: 16px; border: 1px solid var(--line); border-left: 4px solid var(--blue); border-radius: 8px; background: var(--surface); }
+.trial-count small { color: var(--muted); font-size: 11px; }
 
 .run-strip { display: grid; grid-template-columns: repeat(4, 1fr); margin-bottom: 16px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); overflow: hidden; }
 .run-strip > div { display: grid; gap: 4px; padding: 14px 16px; border-right: 1px solid var(--line); }

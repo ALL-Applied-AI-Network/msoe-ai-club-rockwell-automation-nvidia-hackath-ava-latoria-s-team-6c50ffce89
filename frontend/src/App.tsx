@@ -168,10 +168,6 @@ function App() {
     (display.model_status === 'not_evaluated'
       ? 'Not evaluated on this physical step'
       : 'Waiting for image-pair evaluation')
-  const sourceLabel = snapshot.run.source === 'physical_robot'
-      ? 'Physical FANUC cell'
-      : 'Isaac Sim digital twin'
-
   function seekTo(event: TimelineEvent) {
     if (!videoRef.current || !isSyncedRecording) return
     videoRef.current.currentTime = event.start_s
@@ -203,11 +199,6 @@ function App() {
               Watch the run and review the current model prediction, robot step, safety status,
               and measured results in one place.
             </p>
-          </div>
-          <div className="run-identity">
-            <span>Data source</span>
-            <strong>{sourceLabel}</strong>
-            <small>Run {snapshot.run.id}</small>
           </div>
         </section>
 
