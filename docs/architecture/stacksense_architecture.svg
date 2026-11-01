@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#0f2b5b" flood-opacity="0.11"/></filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#315b8f"/></marker>
+    <style>
+      .card{fill:#fff;stroke:#c7d7ea;stroke-width:1.5;rx:14;filter:url(#shadow)}
+      .label{font:700 15px 'Segoe UI',Arial,sans-serif;fill:#10233f;text-anchor:middle}
+      .group{font:700 12px 'Segoe UI',Arial,sans-serif;fill:#52729a;letter-spacing:1.4px}
+      .line{fill:none;stroke:#315b8f;stroke-width:2.2;marker-end:url(#arrow)}
+      .dash{fill:none;stroke:#7894b5;stroke-width:1.8;stroke-dasharray:6 6;marker-end:url(#arrow)}
+      .icon{fill:none;stroke:#2563eb;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+    </style>
+  </defs>
+
+  <rect width="1600" height="900" fill="#f7faff"/>
+  <rect x="28" y="25" width="1544" height="850" rx="24" fill="#fff" stroke="#dbe7f4" stroke-width="2"/>
+  <text x="70" y="76" font-family="Segoe UI,Arial" font-size="30" font-weight="750" fill="#10233f">StackSense Architecture</text>
+  <text x="70" y="104" font-family="Segoe UI,Arial" font-size="14" fill="#68809f">Predict · control · verify</text>
+
+  <text class="group" x="72" y="145">DIGITAL TWIN &amp; TRAINING</text>
+  <text class="group" x="995" y="145">LANGUAGE PLANNING</text>
+  <text class="group" x="72" y="353">CLOSED-LOOP CONTROL</text>
+  <text class="group" x="72" y="659">EVIDENCE &amp; FEEDBACK</text>
+
+  <!-- Connected arrows: training -->
+  <path class="line" d="M220 216H270"/>
+  <path class="line" d="M420 216H470"/>
+  <path class="line" d="M620 216H670"/>
+  <path class="line" d="M745 271V291"/>
+
+  <!-- Connected arrows: planning -->
+  <path class="line" d="M1120 216H1170"/>
+  <path class="line" d="M1320 216H1370"/>
+  <path class="line" d="M1445 271V314H570V384"/>
+
+  <!-- Connected arrows: runtime -->
+  <path class="line" d="M220 440V366H545V384"/>
+  <path class="line" d="M420 440H470"/>
+  <path class="line" d="M670 331H645V366H545V384"/>
+  <path class="line" d="M620 440H670"/>
+  <path class="line" d="M820 440H870"/>
+  <path class="line" d="M1020 440H1060V402H1100"/>
+  <path class="line" d="M1020 440H1060V500H1100"/>
+  <path class="line" d="M1250 402H1320V440H1370"/>
+  <path class="line" d="M1250 500H1320V440H1370"/>
+  <path class="dash" d="M1445 495V588H145V495"/>
+
+  <!-- Connected arrows: evidence loop -->
+  <path class="line" d="M1445 495V690H1320"/>
+  <path class="line" d="M1170 746H1120"/>
+  <path class="line" d="M970 746H920"/>
+  <path class="line" d="M770 746H720"/>
+  <path class="line" d="M570 746H520"/>
+  <path class="line" d="M445 691V620H545V271"/>
+  <path class="dash" d="M745 495V620H1045V691"/>
+
+  <!-- Training cards -->
+  <g transform="translate(70 162)"><rect class="card" width="150" height="109"/><image href="assets/nvidia.svg" x="52" y="17" width="46" height="46"/><text class="label" x="75" y="89">NVIDIA Brev</text></g>
+  <g transform="translate(270 162)"><rect class="card" width="150" height="109"/><image href="assets/nvidia.svg" x="52" y="17" width="46" height="46"/><text class="label" x="75" y="89">Isaac Sim</text></g>
+  <g transform="translate(470 162)"><rect class="card" width="150" height="109"/><g transform="translate(57 17)" class="icon"><path d="M0 12l18-9 18 9-18 9zM0 25l18 9 18-9M0 12v13M36 12v13"/><circle cx="18" cy="21" r="3" fill="#2563eb"/></g><text class="label" x="75" y="89">Synthetic Data</text></g>
+  <g transform="translate(670 162)"><rect class="card" width="150" height="109"/><image href="assets/pytorch.svg" x="52" y="17" width="46" height="46"/><text class="label" x="75" y="89">PyTorch Model</text></g>
+
+  <!-- Planning cards -->
+  <g transform="translate(970 162)"><rect class="card" width="150" height="109"/><g transform="translate(54 18)" class="icon"><path d="M2 2h38v28H20l-10 8v-8H2z"/><path d="M10 11h22M10 19h15"/></g><text class="label" x="75" y="89">Task Input</text></g>
+  <g transform="translate(1170 162)"><rect class="card" width="150" height="109"/><image href="assets/gemini.svg" x="52" y="17" width="46" height="46"/><text class="label" x="75" y="89">Gemini Planner</text></g>
+  <g transform="translate(1370 162)"><rect class="card" width="150" height="109"/><g transform="translate(53 16)" class="icon"><path d="M22 2l18 8v12c0 12-8 20-18 24C12 42 4 34 4 22V10z"/><path d="M13 23l6 6 12-14"/></g><text class="label" x="75" y="89">Schema Gate</text></g>
+
+  <!-- Runtime cards -->
+  <g transform="translate(70 385)"><rect class="card" width="150" height="110"/><g transform="translate(52 19)" class="icon"><rect x="2" y="8" width="42" height="28" rx="5"/><circle cx="23" cy="22" r="9"/><path d="M12 8l5-7h12l5 7"/></g><text class="label" x="75" y="91">Cube Vision</text></g>
+  <g transform="translate(270 385)"><rect class="card" width="150" height="110"/><g transform="translate(53 18)" class="icon"><circle cx="22" cy="22" r="9"/><path d="M22 1v7M22 36v7M1 22h7M36 22h7M7 7l5 5M32 32l5 5M37 7l-5 5M12 32l-5 5"/></g><text class="label" x="75" y="91">RL Placement</text></g>
+  <g transform="translate(470 385)"><rect class="card" width="150" height="110"/><g transform="translate(53 17)" class="icon"><circle cx="22" cy="22" r="10"/><path d="M22 0v8M22 36v8M0 22h8M36 22h8M6 6l6 6M32 32l6 6M38 6l-6 6M12 32l-6 6"/></g><text class="label" x="75" y="91">State Machine</text></g>
+  <g transform="translate(670 291)"><rect class="card" width="150" height="80"/><g transform="translate(54 10)" class="icon"><path d="M2 21c10-14 28-14 38 0-10 14-28 14-38 0z"/><circle cx="21" cy="21" r="6"/><path d="M29 36l5 5 9-12"/></g><text class="label" x="75" y="65">Grasp Check</text></g>
+  <g transform="translate(670 385)"><rect class="card" width="150" height="110"/><g transform="translate(53 16)" class="icon"><path d="M22 2l18 8v12c0 12-8 20-18 24C12 42 4 34 4 22V10z"/><path d="M13 23l6 6 12-14"/></g><text class="label" x="75" y="91">Safety Gates</text></g>
+  <g transform="translate(870 385)"><rect class="card" width="150" height="110"/><g transform="translate(51 16)" class="icon"><path d="M3 40h42M10 40V27l10-6 7-13 8 4-6 14 8 6v8"/><circle cx="27" cy="8" r="4"/><circle cx="20" cy="21" r="4"/></g><text class="label" x="75" y="91">Motion Plan</text></g>
+  <g transform="translate(1100 347)"><rect class="card" width="150" height="110"/><g transform="translate(51 17)" class="icon"><rect x="2" y="2" width="44" height="32" rx="3"/><path d="M15 41h18M24 34v7M12 25l9-9 7 7 7-7"/></g><text class="label" x="75" y="91">Twin Target</text></g>
+  <g transform="translate(1100 465)"><rect class="card" width="150" height="110" fill="#fff9dc"/><g transform="translate(51 16)" fill="none" stroke="#eab308" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 40h42M10 40V27l10-6 7-13 8 4-6 14 8 6v8"/><circle cx="27" cy="8" r="4"/><circle cx="20" cy="21" r="4"/></g><text class="label" x="75" y="91">CSI FANUC</text></g>
+  <g transform="translate(1370 385)"><rect class="card" width="150" height="110"/><g transform="translate(54 17)" class="icon"><path d="M4 3h27l9 9v32H4zM31 3v10h9M12 23h20M12 31h20"/></g><text class="label" x="75" y="91">Episode Evidence</text></g>
+
+  <!-- Evidence cards, right-to-left feedback loop -->
+  <g transform="translate(1170 691)"><rect class="card" width="150" height="110"/><image href="assets/gemini.svg" x="52" y="17" width="46" height="46"/><text class="label" x="75" y="91">Gemini Review</text></g>
+  <g transform="translate(970 691)"><rect class="card" width="150" height="110"/><image href="assets/python.svg" x="52" y="17" width="46" height="46"/><text class="label" x="75" y="91">Python API</text></g>
+  <g transform="translate(770 691)"><rect class="card" width="150" height="110"/><image href="assets/react.svg" x="52" y="17" width="46" height="46"/><text class="label" x="75" y="91">React Dashboard</text></g>
+  <g transform="translate(570 691)"><rect class="card" width="150" height="110"/><g transform="translate(53 16)" class="icon"><circle cx="22" cy="12" r="8"/><path d="M7 42c1-12 7-18 15-18s14 6 15 18M31 30l5 5 9-12"/></g><text class="label" x="75" y="91">Human Review</text></g>
+  <g transform="translate(370 691)"><rect class="card" width="150" height="110"/><g transform="translate(54 17)" class="icon"><ellipse cx="21" cy="7" rx="18" ry="6"/><path d="M3 7v13c0 3 8 6 18 6s18-3 18-6V7M3 20v13c0 3 8 6 18 6s18-3 18-6V20"/></g><text class="label" x="75" y="91">Training Data</text></g>
+
+  <rect x="60" y="838" width="1480" height="1" fill="#dbe7f4"/>
+  <text x="800" y="860" text-anchor="middle" font-family="Segoe UI,Arial" font-size="11" fill="#7890ac">Learning recommends · safety decides · humans approve</text>
+</svg>

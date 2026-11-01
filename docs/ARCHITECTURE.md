@@ -8,97 +8,51 @@ corrections; they never command robot joints or bypass the safety gates.
 ## System architecture
 
 ```mermaid
-flowchart TB
-  subgraph DEV["Development and training on NVIDIA Brev"]
-    TWIN["NVIDIA Isaac Sim digital twin<br/>CSI FANUC ER-4iA workcell"]
-    ROLLOUTS["Domain-randomized rollouts<br/>successes and intentional failures"]
-    DATA["Before-and-after RGB pairs<br/>labels, seeds, and metadata"]
-    TRAIN["PyTorch training and evaluation<br/>ResNet-18 Siamese model"]
-    MODEL["Frozen checkpoint<br/>thresholds and evaluation metrics"]
+flowchart LR
+  BREV["NVIDIA Brev"] --> TWIN["Isaac Sim"] --> DATA["Synthetic Data"] --> MODEL["PyTorch Model"]
 
-    TWIN --> ROLLOUTS --> DATA --> TRAIN --> MODEL
-  end
+  TASK["Task Input"] --> GEMINI["Gemini Planner"] --> GATE{"Schema Gate"} --> STATE["State Machine"]
+  VISION["Cube Vision"] --> STATE
+  MODEL --> GRASP["Grasp Check"] --> STATE
+  RL["RL Placement"] --> STATE
 
-  subgraph PLAN["Task planning"]
-    INSTRUCTION["Natural-language instruction<br/>organizer task or dashboard preview"]
-    ROUTER{"Known validated instruction?"}
-    LOCAL["Deterministic local parser<br/>no network dependency"]
-    GEMINI["Gemini instruction planner<br/>strict structured JSON only"]
-    VALIDATE{"Schema and allowlist validation"}
-    TASK["Validated task plan<br/>allowlisted skill and object parameters"]
-    SKILL["Tested execution skill<br/>red-on-blue or six-cube tower"]
-    REJECT["Clarification or supervised safe stop"]
+  STATE --> SAFETY{"Safety Gates"} --> MOTION["Motion Plan"]
+  MOTION --> TWIN
+  MOTION --> FANUC["CSI FANUC"]
 
-    INSTRUCTION --> ROUTER
-    ROUTER -->|Known task| LOCAL --> VALIDATE
-    ROUTER -->|Flexible wording| GEMINI --> VALIDATE
-    VALIDATE -->|Accepted| TASK
-    VALIDATE -->|Rejected| REJECT
-    TASK --> SKILL
-  end
+  TWIN --> EVIDENCE["Episode Evidence"]
+  FANUC --> EVIDENCE
+  EVIDENCE --> VISION
+  EVIDENCE --> G_REVIEW["Gemini Review"] --> API["Python API"]
+  EVIDENCE --> API --> DASH["React Dashboard"] --> HUMAN["Human Review"]
+  HUMAN --> FEEDBACK["Training Data"] --> DATA
 
-  subgraph LOOP["Predictive closed-loop manipulation"]
-    PERCEPTION["Table-camera perception<br/>cube color and position"]
-    PREFLIGHT{"Physical preflight<br/>calibration + 3 stable frames"}
-    STATE["Recovery state machine<br/>locate through final verification"]
-    FRAMES["Before-and-after RGB frames"]
-    CLASSIFIER["Siamese grasp verifier<br/>prediction and confidence"]
-    RL["Safety-shielded Q-learning<br/>simulation-only bounded correction"]
-    MOTION["Inverse kinematics and<br/>interpolated trajectory"]
-    SAFETY{"Workspace, tolerance,<br/>retry, and safe-stop gates"}
-    EXECUTE["Execute permitted motion"]
-    TARGET{"Execution target"}
-    SIM["Isaac Sim<br/>digital-twin validation"]
-    REMOTE["Official remote client<br/>calibrated TCP action API"]
-    FANUC["CSI FANUC workcell<br/>supervised physical validation"]
-    PLACE["Grasp, placement, and<br/>tower verification"]
+  STATE -.-> API
+  GRASP -.-> API
+  RL -.-> API
+  SAFETY -.-> API
 
-    SKILL --> PERCEPTION
-    PERCEPTION -->|Simulation| STATE
-    PERCEPTION -->|Physical| PREFLIGHT --> STATE
-    MODEL --> CLASSIFIER
-    FRAMES --> CLASSIFIER -->|GOOD, BAD, or uncertain| STATE
-    STATE --> MOTION
-    STATE --> RL -->|Bounded correction| MOTION
-    MOTION --> SAFETY --> EXECUTE --> TARGET
-    TARGET --> SIM
-    TARGET --> REMOTE --> FANUC
-    SIM --> FRAMES
-    FANUC --> FRAMES
-    FRAMES --> PLACE --> STATE
-  end
+  classDef compute fill:#eaf4ff,stroke:#2563eb,color:#0f172a,stroke-width:1.5px;
+  classDef learned fill:#f1edff,stroke:#7c3aed,color:#0f172a,stroke-width:1.5px;
+  classDef control fill:#ecfdf3,stroke:#15803d,color:#0f172a,stroke-width:1.5px;
+  classDef safety fill:#fff8e6,stroke:#d97706,color:#0f172a,stroke-width:1.5px;
+  classDef hardware fill:#fff0f0,stroke:#dc2626,color:#0f172a,stroke-width:1.5px;
+  classDef evidence fill:#f8fafc,stroke:#475569,color:#0f172a,stroke-width:1.5px;
 
-  subgraph OBS["Observability and evidence"]
-    API["Read-only Python dashboard API<br/>events, metrics, frames, and status"]
-    DASH["React and TypeScript dashboard<br/>video synchronized with decisions"]
-    REVIEW["Operator review<br/>performance evidence and failure analysis"]
-
-    API --> DASH --> REVIEW
-  end
-
-  STATE -. state and retries .-> API
-  TASK -. validated instruction plan .-> API
-  PREFLIGHT -. calibration and stability .-> API
-  CLASSIFIER -. prediction and confidence .-> API
-  RL -. correction and action .-> API
-  EXECUTE -. timing and motion status .-> API
-  REMOTE -. physical command telemetry .-> API
-  PLACE -. placement measurements .-> API
-
-  classDef compute fill:#e8f2ff,stroke:#2563a6,color:#111827;
-  classDef learned fill:#f0eaff,stroke:#6d4bc3,color:#111827;
-  classDef control fill:#eaf7ed,stroke:#2f7d44,color:#111827;
-  classDef safety fill:#fff4dd,stroke:#b7791f,color:#111827;
-  classDef hardware fill:#fce8e8,stroke:#b23b3b,color:#111827;
-  classDef telemetry fill:#eef2f6,stroke:#52606d,color:#111827;
-
-  class TWIN,ROLLOUTS,DATA compute;
-  class TRAIN,MODEL,GEMINI,CLASSIFIER,RL learned;
-  class LOCAL,TASK,SKILL,PERCEPTION,STATE,MOTION,PLACE control;
-  class ROUTER,VALIDATE,REJECT,PREFLIGHT,SAFETY safety;
-  class EXECUTE,TARGET,SIM,REMOTE,FANUC,FRAMES hardware;
-  class API,DASH,REVIEW telemetry;
+  class BREV,TWIN,DATA compute;
+  class MODEL,GEMINI,GRASP,RL,G_REVIEW learned;
+  class STATE,VISION,MOTION control;
+  class GATE,SAFETY safety;
+  class FANUC hardware;
+  class TASK,EVIDENCE,API,DASH,HUMAN,FEEDBACK evidence;
 ```
+
+## Presentation diagram
+
+[Open the PNG](architecture/stacksense_architecture.png) or
+[open the editable SVG](architecture/stacksense_architecture.svg).
+
+![StackSense connected architecture](architecture/stacksense_architecture.png)
 
 ## How the components work together
 
